@@ -12,6 +12,15 @@
 
 </div>
 
+<div align="center">
+  <p>🎥 <b>Watch the Setup & Demo Video:</b> <a href="https://youtu.be/ESELhY-G_9w">https://youtu.be/ESELhY-G_9w</a></p>
+  <a href="https://youtu.be/ESELhY-G_9w">
+    <img src="https://img.youtube.com/vi/ESELhY-G_9w/maxresdefault.jpg" alt="Local AI Image Generator Video Tutorial" style="width:100%; max-width:800px; border-radius: 8px; margin-top: 10px;">
+  </a>
+</div>
+
+---
+
 ## 📖 Overview
 **Local AI Image Generator** is a zero-configuration, portable desktop environment for running Stable Diffusion (Safetensors/GGUF/CKPT) offline on Windows. Double-clicking `start.bat` automatically handles dependency setup, GPU backend matching (CUDA/Vulkan), and launches a high-performance local web workspace.
 
