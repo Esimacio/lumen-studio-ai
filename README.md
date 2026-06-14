@@ -36,13 +36,14 @@
 ### Linux
 1. **Check compatibility:** Prebuilt Linux backends are built on Ubuntu 24.04 and require **glibc 2.38+**. Run `ldd --version` to verify.
 2. **Launch:** Open a terminal in the project folder and run **`./linux.sh`** (downloads portable Node.js and pre-compiled GPU backend binaries on first run).
+   - NVIDIA GPU users will be prompted if they want to set up the high-performance **CUDA** backend (which attempts to download a prebuilt binary first and automatically compiles from source as a fallback if conflicts are found).
    - For maximum AMD GPU performance, use **`./linux.sh --max-perf`** on first setup (adds the ROCm backend).
    - For Intel Core Ultra NPU support, install the Intel Linux NPU driver, then run **`./linux.sh --setup-openvino`**.
 3. **Add Models:** Drop `.safetensors`, `.gguf`, or `.ckpt` weights into `app/models/` (or download them via the **Model Manager** tab in the UI).
 4. **Generate:** Open `http://localhost:1420` in your browser, select your model, and write a prompt.
 
 ### macOS
-1. **Check compatibility:** The prebuilt macOS backend is for **Apple Silicon (M1 or newer)** and uses **Metal** GPU acceleration.
+1. **Check compatibility:** The prebuilt macOS backend is for **Apple Silicon (M1 or newer)** and uses **Metal** GPU acceleration. *(Note: macOS Intel hardware is completely unsupported and has not been tested.)*
 2. **Launch:** Open Terminal in the project folder and run **`./mac.sh`** (downloads portable Node.js and the pre-compiled Metal backend on first run).
 3. **Add Models:** Drop `.safetensors`, `.gguf`, or `.ckpt` weights into `app/models/` (or download them via the **Model Manager** tab in the UI).
 4. **Generate:** Open `http://localhost:1420` in your browser, select your model, and write a prompt.
@@ -98,7 +99,7 @@ local-ai-image-generator/
 
 | GPU Vendor | Primary | Fallback | Notes |
 | :--- | :--- | :--- | :--- |
-| **NVIDIA** | Vulkan | CPU | No reliable prebuilt Linux CUDA binary is currently available. NVIDIA GPUs use Vulkan. |
+| **NVIDIA** | CUDA / Vulkan | Vulkan / CPU | Auto-detects NVIDIA. Prompt-driven CUDA setup downloads prebuilt or compiles from source. Falls back to Vulkan for GTX. |
 | **AMD Radeon** | ROCm | Vulkan | ROCm provides best AMD performance when host ROCm drivers are available. |
 | **Intel Arc / integrated** | Vulkan | CPU | Cross-vendor Vulkan support. |
 | **Intel Core Ultra NPU** | OpenVINO NPU | CPU | Requires the Intel Linux NPU driver, kernel 6.6+, Python 3, and `./linux.sh --setup-openvino`. |
@@ -109,17 +110,16 @@ local-ai-image-generator/
 | Hardware | Primary | Fallback | Notes |
 | :--- | :--- | :--- | :--- |
 | **Apple Silicon (M1 or newer)** | Metal | CPU | Uses the official Darwin arm64 stable-diffusion.cpp backend. |
-| **Intel Mac** | Source build required | CPU | Official prebuilt macOS backend is Apple Silicon only. |
 
 **System requirements:**
 - **64-bit Windows 10 or Windows 11** is required for the portable Node.js 22 runtime used by the Windows launcher.
 - **glibc 2.38 or newer** is required for the prebuilt Linux backends (Ubuntu 24.04, Fedora 40+, etc.).
 - The setup script will warn you if your glibc is older. You can still run setup, but the prebuilt backends will not start.
 - **Linux OpenVINO NPU:** Intel Core Ultra, x86_64 Linux, kernel 6.6+, a working `/dev/accel/accel0` device, Python 3 with `venv`, and the Intel Linux NPU driver are required.
-- **Apple Silicon (M1 or newer)** is required for the prebuilt macOS Metal backend.
+- **Apple Silicon (M1 or newer)** is required for the prebuilt macOS Metal backend. *(Note: macOS Intel hardware is completely unsupported and has not been tested.)*
 
 **Linux setup modes:**
-- **Default (`./linux.sh`)**: Downloads CPU + Vulkan backends (~120–150 MB).
+- **Default (`./linux.sh`)**: Downloads CPU + Vulkan backends (~120–150 MB). If an NVIDIA GPU is detected, prompts to set up CUDA (attempts to download prebuilt, otherwise compiles from source).
 - **Maximum Performance (`./linux.sh --max-perf`)**: Also downloads the ROCm backend. Total download ~1.3 GB.
 - **Intel NPU (`./linux.sh --setup-openvino`)**: Creates a local OpenVINO Python environment and verifies that the Intel NPU driver exposes an `NPU` device.
 
@@ -129,11 +129,20 @@ local-ai-image-generator/
 
 Typical generation times for an image with **20 steps** (e.g. 512x512 resolution; actual times can vary depending on specific hardware specifications, clock speeds, and system load):
 
-*   **CUDA GPU (Nvidia RTX):** ~10 seconds.
-*   **ROCm GPU (AMD RDNA2/RDNA3):** ~15–30 seconds.
-*   **Vulkan GPU (AMD / Intel Arc):** ~89 seconds.
-*   **GTX Vulkan Fallback (Nvidia GTX):** ~30 seconds (Vulkan runs significantly faster on legacy GTX series cards since they lack Tensor Cores).
-*   **CPU (Fallback):** ~150 - 300+ seconds (highly dependent on processor core count, speed, and AVX instruction sets).
+| Operating System | Backend / Hardware | Typical Time (512x512) | Notes |
+| :--- | :--- | :--- | :--- |
+| **Windows** | NVIDIA RTX (CUDA) | ~10 seconds | Native CUDA with Tensor Core acceleration. |
+| **Windows** | AMD Radeon / Intel Arc (Vulkan) | ~89 seconds | Cross-vendor Vulkan GPU fallback. |
+| **Windows** | NVIDIA GTX (Vulkan) | ~30 seconds | Vulkan is faster than CUDA on legacy GTX cards. |
+| **Windows** | CPU | 150 - 300+ seconds | Legacy fallback, highly dependent on CPU cores. |
+| **Linux** | NVIDIA RTX (CUDA) | ~10 seconds | Automated source-build / prebuilt CUDA. |
+| **Linux** | AMD Radeon (ROCm) | ~15 - 30 seconds | Native AMD performance (requires ROCm drivers). |
+| **Linux** | NVIDIA GTX (Vulkan) | ~29 seconds | Tested on GTX 1650 (25.5s sampling, 3.7s decode). |
+| **Linux** | AMD / Intel Arc (Vulkan) | ~89 seconds | Vulkan API acceleration. |
+| **Linux** | Intel Core Ultra (OpenVINO NPU) | ~15 - 40 seconds | Dedicated Intel NPU hardware acceleration. |
+| **Linux** | CPU | 150 - 300+ seconds | Logical thread computation. |
+| **macOS** | Apple Silicon M-Series (Metal GPU) | ~12 - 25 seconds | Native Metal backend on Apple Silicon. |
+| **macOS** | Apple Silicon ANE (Apple NPU) | ~10 - 18 seconds | CoreML compilation on Apple Neural Engine. |
 
 ---
 
@@ -149,7 +158,7 @@ Typical generation times for an image with **20 steps** (e.g. 512x512 resolution
 
 ## 🔨 Building Linux Backends From Source
 
-If your distribution has an older glibc than 2.38, or you want a CUDA backend on Linux, you can build `stable-diffusion.cpp` directly on your machine. The resulting binary will be linked against your system's glibc and will not have the compatibility issues of the prebuilt releases.
+The setup script (`scripts/setup.sh`) now automates building and setting up the CUDA backend from source when selected. If you want to manually build all backends (CPU, Vulkan, and CUDA) at once, you can run the included `scripts/build_from_source.sh` script.
 
 For macOS, the included `scripts/build_from_source.sh` builds the Metal backend and copies it to `app/backend/mac/sd`.
 

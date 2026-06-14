@@ -402,13 +402,35 @@ if (-not (Test-Path $npmCmd)) {
 
 # If node_modules is a Unix symlink/junction, remove it so Windows can install natively into a real directory
 $nodeModulesDir = Join-Path $frontendDir "node_modules"
+$activeOsFile = Join-Path $frontendDir ".active_modules_os"
+$prevOs = ""
+if (Test-Path $activeOsFile) {
+    $prevOs = (Get-Content $activeOsFile -Raw).Trim()
+}
+
 if (Test-Path $nodeModulesDir) {
     $item = Get-Item $nodeModulesDir
     if ($item.Attributes -match "ReparsePoint") {
         Print-Info "Removing Unix symlink for node_modules on Windows..."
         Remove-Item $nodeModulesDir -Force -ErrorAction SilentlyContinue
+    } elseif ($prevOs -ne "windows" -and $prevOs -ne "") {
+        # It's a real folder, but it belongs to another OS (e.g. linux or mac)
+        Print-Info "Swapping out node_modules to node_modules_$prevOs..."
+        $targetDir = Join-Path $frontendDir "node_modules_$prevOs"
+        if (Test-Path $targetDir) { Remove-Item $targetDir -Recurse -Force -ErrorAction SilentlyContinue }
+        Move-Item $nodeModulesDir $targetDir -Force
     }
 }
+
+# Now swap in node_modules_windows if it exists
+$winModulesDir = Join-Path $frontendDir "node_modules_windows"
+if ((Test-Path $winModulesDir) -and -not (Test-Path $nodeModulesDir)) {
+    Print-Info "Swapping in node_modules_windows..."
+    Move-Item $winModulesDir $nodeModulesDir -Force
+}
+
+# Mark windows as active
+"windows" | Out-File -FilePath $activeOsFile -NoNewline -Encoding utf8
 
 Push-Location $frontendDir
 $oldPath = $env:PATH

@@ -269,7 +269,7 @@ if [[ "$PLATFORM" == "Darwin" ]]; then
   print_step 2 $TOTAL_STEPS "Setting up stable-diffusion.cpp Metal backend (app/backend/mac/)"
   if [[ "$ARCH" != "arm64" ]]; then
     print_fail "The official macOS backend binary is Apple Silicon only (arm64)."
-    print_info "Intel Macs need a local source build with Metal/OpenBLAS and a matching app/backend/mac/sd binary."
+    print_info "macOS Intel hardware is completely unsupported and has not been tested."
     exit 1
   fi
 
@@ -493,28 +493,76 @@ if [[ ! -x "$NPM_BIN" ]]; then
   exit 1
 fi
 
-# Ensure correct OS-specific node_modules folder is symlinked to avoid conflicts
+# Ensure correct OS-specific node_modules folder is symlinked or swapped to avoid conflicts
 FRONTEND_NODE_MODULES="$FRONTEND_DIR/node_modules"
+ACTIVE_OS_FILE="$FRONTEND_DIR/.active_modules_os"
+
 if [[ "$PLATFORM" == "Darwin" ]]; then
   OS_NODE_MODULES="$FRONTEND_DIR/node_modules_mac"
   OS_LABEL="node_modules_mac"
+  CURRENT_OS="mac"
 else
   OS_NODE_MODULES="$FRONTEND_DIR/node_modules_linux"
   OS_LABEL="node_modules_linux"
+  CURRENT_OS="linux"
 fi
 
-if [[ -d "$FRONTEND_NODE_MODULES" && ! -L "$FRONTEND_NODE_MODULES" ]]; then
-  print_info "Migrating existing node_modules to $OS_LABEL..."
-  if [[ -d "$OS_NODE_MODULES" ]]; then
-    rm -rf "$FRONTEND_NODE_MODULES"
-  else
-    mv "$FRONTEND_NODE_MODULES" "$OS_NODE_MODULES"
+# Attempt to create a test symlink to check if filesystem supports symlinks
+USE_SYMLINKS=true
+TEST_LINK="$FRONTEND_DIR/.test_symlink"
+rm -f "$TEST_LINK"
+if ln -s "$OS_LABEL" "$TEST_LINK" 2>/dev/null; then
+  rm -f "$TEST_LINK"
+else
+  USE_SYMLINKS=false
+fi
+
+if [ "$USE_SYMLINKS" = true ]; then
+  if [[ -d "$FRONTEND_NODE_MODULES" && ! -L "$FRONTEND_NODE_MODULES" ]]; then
+    print_info "Migrating existing node_modules to $OS_LABEL..."
+    if [[ -d "$OS_NODE_MODULES" ]]; then
+      rm -rf "$FRONTEND_NODE_MODULES"
+    else
+      mv "$FRONTEND_NODE_MODULES" "$OS_NODE_MODULES"
+    fi
   fi
+  rm -rf "$FRONTEND_NODE_MODULES"
+  mkdir -p "$OS_NODE_MODULES"
+  ln -sf "$OS_LABEL" "$FRONTEND_NODE_MODULES"
+else
+  # Fallback: Filesystem does not support symlinks (e.g. FAT32/exFAT)
+  print_info "Filesystem does not support symlinks. Using directory swapping fallback..."
+  
+  if [[ -L "$FRONTEND_NODE_MODULES" || -f "$FRONTEND_NODE_MODULES" ]]; then
+    rm -rf "$FRONTEND_NODE_MODULES"
+  fi
+  
+  PREV_OS=""
+  if [[ -f "$ACTIVE_OS_FILE" ]]; then
+    PREV_OS=$(cat "$ACTIVE_OS_FILE")
+  fi
+  
+  if [[ -d "$FRONTEND_NODE_MODULES" && "$PREV_OS" != "$CURRENT_OS" ]]; then
+    if [[ -n "$PREV_OS" ]]; then
+      print_info "Swapping out node_modules to node_modules_$PREV_OS..."
+      rm -rf "$FRONTEND_DIR/node_modules_$PREV_OS"
+      mv "$FRONTEND_NODE_MODULES" "$FRONTEND_DIR/node_modules_$PREV_OS"
+    else
+      print_info "Saving node_modules as node_modules_windows..."
+      rm -rf "$FRONTEND_DIR/node_modules_windows"
+      mv "$FRONTEND_NODE_MODULES" "$FRONTEND_DIR/node_modules_windows"
+    fi
+  fi
+  
+  if [[ -d "$OS_NODE_MODULES" && ! -d "$FRONTEND_NODE_MODULES" ]]; then
+    print_info "Swapping in $OS_LABEL..."
+    mv "$OS_NODE_MODULES" "$FRONTEND_NODE_MODULES"
+  elif [[ ! -d "$FRONTEND_NODE_MODULES" ]]; then
+    mkdir -p "$FRONTEND_NODE_MODULES"
+  fi
+  
+  echo "$CURRENT_OS" > "$ACTIVE_OS_FILE"
 fi
-
-rm -rf "$FRONTEND_NODE_MODULES"
-mkdir -p "$OS_NODE_MODULES"
-ln -sf "$OS_LABEL" "$FRONTEND_NODE_MODULES"
 
 cd "$FRONTEND_DIR"
 export PATH="$NODE_DIR/bin:$PATH"

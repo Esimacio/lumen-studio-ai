@@ -28,18 +28,63 @@ FRONTEND_PORT="${FRONTEND_PORT:-1420}"
 SETUP_REASON=""
 SETUP_MODE="Repair"
 
-# ── Symlink node_modules to avoid OS conflicts ──────────────────────────────
+# ── Setup node_modules to avoid OS conflicts ────────────────────────────────
 FRONTEND_NODE_MODULES="$APP_DIR/frontend/node_modules"
 MAC_NODE_MODULES="$APP_DIR/frontend/node_modules_mac"
+ACTIVE_OS_FILE="$APP_DIR/frontend/.active_modules_os"
 
-if [[ -d "$FRONTEND_NODE_MODULES" && ! -L "$FRONTEND_NODE_MODULES" ]]; then
-  echo "  >> Migrating existing node_modules to node_modules_mac..."
-  mv "$FRONTEND_NODE_MODULES" "$MAC_NODE_MODULES"
+# Attempt to create a test symlink to check if filesystem supports symlinks
+USE_SYMLINKS=true
+TEST_LINK="$APP_DIR/frontend/.test_symlink"
+rm -f "$TEST_LINK"
+if ln -s "node_modules_mac" "$TEST_LINK" 2>/dev/null; then
+  rm -f "$TEST_LINK"
+else
+  USE_SYMLINKS=false
 fi
 
-rm -f "$FRONTEND_NODE_MODULES"
-mkdir -p "$MAC_NODE_MODULES"
-ln -sf "node_modules_mac" "$FRONTEND_NODE_MODULES"
+if [ "$USE_SYMLINKS" = true ]; then
+  if [[ -d "$FRONTEND_NODE_MODULES" && ! -L "$FRONTEND_NODE_MODULES" ]]; then
+    echo "  >> Migrating existing node_modules to node_modules_mac..."
+    mv "$FRONTEND_NODE_MODULES" "$MAC_NODE_MODULES"
+  fi
+  rm -f "$FRONTEND_NODE_MODULES"
+  mkdir -p "$MAC_NODE_MODULES"
+  ln -sf "node_modules_mac" "$FRONTEND_NODE_MODULES"
+else
+  # Fallback: Filesystem does not support symlinks (e.g. FAT32/exFAT)
+  echo "  >> Filesystem does not support symlinks. Using directory swapping fallback..."
+  
+  if [[ -L "$FRONTEND_NODE_MODULES" || -f "$FRONTEND_NODE_MODULES" ]]; then
+    rm -f "$FRONTEND_NODE_MODULES"
+  fi
+  
+  PREV_OS=""
+  if [[ -f "$ACTIVE_OS_FILE" ]]; then
+    PREV_OS=$(cat "$ACTIVE_OS_FILE")
+  fi
+  
+  if [[ -d "$FRONTEND_NODE_MODULES" && "$PREV_OS" != "mac" ]]; then
+    if [[ -n "$PREV_OS" ]]; then
+      echo "  >> Swapping out node_modules to node_modules_$PREV_OS..."
+      rm -rf "$APP_DIR/frontend/node_modules_$PREV_OS"
+      mv "$FRONTEND_NODE_MODULES" "$APP_DIR/frontend/node_modules_$PREV_OS"
+    else
+      echo "  >> Saving node_modules as node_modules_windows..."
+      rm -rf "$APP_DIR/frontend/node_modules_windows"
+      mv "$FRONTEND_NODE_MODULES" "$APP_DIR/frontend/node_modules_windows"
+    fi
+  fi
+  
+  if [[ -d "$MAC_NODE_MODULES" && ! -d "$FRONTEND_NODE_MODULES" ]]; then
+    echo "  >> Swapping in node_modules_mac..."
+    mv "$MAC_NODE_MODULES" "$FRONTEND_NODE_MODULES"
+  elif [[ ! -d "$FRONTEND_NODE_MODULES" ]]; then
+    mkdir -p "$FRONTEND_NODE_MODULES"
+  fi
+  
+  echo "mac" > "$ACTIVE_OS_FILE"
+fi
 
 # ── First-time setup check ─────────────────────────────────────────────────
 if [[ ! -d "$NODE_DIR" ]]; then

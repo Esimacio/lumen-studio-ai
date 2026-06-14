@@ -53,18 +53,63 @@ if [[ $SETUP_OPENVINO -eq 1 ]]; then
   bash "$SCRIPT_DIR/scripts/setup-openvino-npu.sh"
 fi
 
-# ── Symlink node_modules to avoid OS conflicts ──────────────────────────────
+# ── Setup node_modules to avoid OS conflicts ────────────────────────────────
 FRONTEND_NODE_MODULES="$APP_DIR/frontend/node_modules"
 LINUX_NODE_MODULES="$APP_DIR/frontend/node_modules_linux"
+ACTIVE_OS_FILE="$APP_DIR/frontend/.active_modules_os"
 
-if [[ -d "$FRONTEND_NODE_MODULES" && ! -L "$FRONTEND_NODE_MODULES" ]]; then
-  echo "  >> Migrating existing node_modules to node_modules_linux..."
-  mv "$FRONTEND_NODE_MODULES" "$LINUX_NODE_MODULES"
+# Attempt to create a test symlink to check if filesystem supports symlinks
+USE_SYMLINKS=true
+TEST_LINK="$APP_DIR/frontend/.test_symlink"
+rm -f "$TEST_LINK"
+if ln -s "node_modules_linux" "$TEST_LINK" 2>/dev/null; then
+  rm -f "$TEST_LINK"
+else
+  USE_SYMLINKS=false
 fi
 
-rm -f "$FRONTEND_NODE_MODULES"
-mkdir -p "$LINUX_NODE_MODULES"
-ln -sf "node_modules_linux" "$FRONTEND_NODE_MODULES"
+if [ "$USE_SYMLINKS" = true ]; then
+  if [[ -d "$FRONTEND_NODE_MODULES" && ! -L "$FRONTEND_NODE_MODULES" ]]; then
+    echo "  >> Migrating existing node_modules to node_modules_linux..."
+    mv "$FRONTEND_NODE_MODULES" "$LINUX_NODE_MODULES"
+  fi
+  rm -f "$FRONTEND_NODE_MODULES"
+  mkdir -p "$LINUX_NODE_MODULES"
+  ln -sf "node_modules_linux" "$FRONTEND_NODE_MODULES"
+else
+  # Fallback: Filesystem does not support symlinks (e.g. FAT32/exFAT)
+  echo "  >> Filesystem does not support symlinks. Using directory swapping fallback..."
+  
+  if [[ -L "$FRONTEND_NODE_MODULES" || -f "$FRONTEND_NODE_MODULES" ]]; then
+    rm -f "$FRONTEND_NODE_MODULES"
+  fi
+  
+  PREV_OS=""
+  if [[ -f "$ACTIVE_OS_FILE" ]]; then
+    PREV_OS=$(cat "$ACTIVE_OS_FILE")
+  fi
+  
+  if [[ -d "$FRONTEND_NODE_MODULES" && "$PREV_OS" != "linux" ]]; then
+    if [[ -n "$PREV_OS" ]]; then
+      echo "  >> Swapping out node_modules to node_modules_$PREV_OS..."
+      rm -rf "$APP_DIR/frontend/node_modules_$PREV_OS"
+      mv "$FRONTEND_NODE_MODULES" "$APP_DIR/frontend/node_modules_$PREV_OS"
+    else
+      echo "  >> Saving node_modules as node_modules_windows..."
+      rm -rf "$APP_DIR/frontend/node_modules_windows"
+      mv "$FRONTEND_NODE_MODULES" "$APP_DIR/frontend/node_modules_windows"
+    fi
+  fi
+  
+  if [[ -d "$LINUX_NODE_MODULES" && ! -d "$FRONTEND_NODE_MODULES" ]]; then
+    echo "  >> Swapping in node_modules_linux..."
+    mv "$LINUX_NODE_MODULES" "$FRONTEND_NODE_MODULES"
+  elif [[ ! -d "$FRONTEND_NODE_MODULES" ]]; then
+    mkdir -p "$FRONTEND_NODE_MODULES"
+  fi
+  
+  echo "linux" > "$ACTIVE_OS_FILE"
+fi
 
 # ── First-time setup check ─────────────────────────────────────────────────
 if [[ ! -d "$NODE_DIR" ]]; then
