@@ -1484,7 +1484,11 @@ async function startBackend(settings = {}) {
       args.push("--vae-on-cpu");
     }
     if (currentSettings.flashAttn) {
-      args.push("--fa");
+      if (requestedBackend === "cuda") {
+        args.push("--diffusion-fa");
+      } else {
+        args.push("--fa");
+      }
     }
   }
 

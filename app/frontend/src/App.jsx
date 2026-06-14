@@ -467,6 +467,8 @@ function App() {
             serverRunning={serverRunning}
             setServerRunning={setServerRunning}
             constraints={constraints}
+            setConstraints={setConstraints}
+            telemetry={telemetry}
             backendOptions={backendOptions}
             showAlert={showAlert}
             showConfirm={showConfirm}

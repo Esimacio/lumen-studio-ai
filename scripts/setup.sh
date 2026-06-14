@@ -363,16 +363,125 @@ if [[ $MAX_PERF -eq 1 ]] && [[ "$VENDOR" == "amd" || "$VENDOR" == "" ]]; then
   chmod +x "$ROCM_BACKEND_DIR/sd-rocm" "$ROCM_BACKEND_DIR/sd-server-rocm" 2>/dev/null || true
 fi
 
-# CUDA backend on Linux is intentionally disabled.
-# upstream leejet/stable-diffusion.cpp does not publish official Linux CUDA binaries
-# (see https://github.com/leejet/stable-diffusion.cpp/issues/1291), and the only
-# third-party build we evaluated (leaxer-ai/leaxer-stable-diffusion v0.1.0) loads
-# models but segfaults during generation. Until a reliable Linux CUDA binary is
-# available, Linux NVIDIA systems fall back to the Vulkan backend, which uses the
-# same GPU via the vendor's Vulkan driver.
-if [[ $MAX_PERF -eq 1 ]] && [[ "$VENDOR" == "nvidia" ]]; then
-  print_info "Linux CUDA backend is disabled pending a reliable upstream binary."
-  print_info "NVIDIA GPUs on Linux will use the Vulkan backend instead."
+# CUDA backend on Linux: ask user, download prebuilt first, and compile from source as a fallback.
+CUDA_BACKEND_DIR="$BACKEND_DIR/cuda"
+if [[ "$VENDOR" == "nvidia" ]]; then
+  if [[ ! -f "$CUDA_BACKEND_DIR/sd-cuda" || ! -f "$CUDA_BACKEND_DIR/sd-server-cuda" ]]; then
+    echo ""
+    echo "  ============================================================"
+    echo "   NVIDIA GPU Detected"
+    echo "  ============================================================"
+    echo "   To get the best performance, you can use the CUDA backend."
+    echo "   Setting this up can download a prebuilt binary or compile from"
+    echo "   source (which takes 10-15 minutes)."
+    echo ""
+    echo "   Alternatively, you can use the Vulkan backend which is already"
+    echo "   installed and runs immediately (recommended for GTX cards)."
+    echo "  ============================================================"
+    echo ""
+    
+    CHOOSE_CUDA="n"
+    if [[ -t 0 ]]; then
+      read -t 30 -rp "   Do you want to proceed with CUDA setup? [y/N]: " CHOOSE_CUDA || CHOOSE_CUDA="n"
+    else
+      print_info "Non-interactive environment detected; defaulting to Vulkan."
+    fi
+    
+    if [[ "$CHOOSE_CUDA" =~ ^[Yy]$ ]]; then
+      TRY_DOWNLOAD=1
+      PREBUILT_URL="https://github.com/leaxer-ai/leaxer-stable-diffusion/releases/download/v0.1.0/sd-server-x86_64-unknown-linux-gnu-cuda"
+      PREBUILT_CLI_URL="https://github.com/leaxer-ai/leaxer-stable-diffusion/releases/download/v0.1.0/sd-x86_64-unknown-linux-gnu-cuda"
+      
+      mkdir -p "$CUDA_BACKEND_DIR"
+      
+      print_info "Attempting to download prebuilt CUDA binary..."
+      if download_file "$PREBUILT_URL" "$CUDA_BACKEND_DIR/sd-server-cuda" "Prebuilt Linux CUDA Server" && \
+         download_file "$PREBUILT_CLI_URL" "$CUDA_BACKEND_DIR/sd-cuda" "Prebuilt Linux CUDA CLI"; then
+        
+        chmod +x "$CUDA_BACKEND_DIR/sd-server-cuda" "$CUDA_BACKEND_DIR/sd-cuda" 2>/dev/null || true
+        
+        print_info "Testing downloaded prebuilt CUDA binary..."
+        if "$CUDA_BACKEND_DIR/sd-server-cuda" --help >/dev/null 2>&1; then
+          print_ok "Prebuilt CUDA binary verified and works! Skipping compilation."
+          TRY_DOWNLOAD=0
+        else
+          print_warn "Prebuilt CUDA binary failed verification test (missing libraries or library mismatch)."
+          rm -f "$CUDA_BACKEND_DIR/sd-server-cuda" "$CUDA_BACKEND_DIR/sd-cuda"
+        fi
+      else
+        print_warn "Failed to download prebuilt CUDA binary."
+        rm -f "$CUDA_BACKEND_DIR/sd-server-cuda" "$CUDA_BACKEND_DIR/sd-cuda"
+      fi
+      
+      if [[ $TRY_DOWNLOAD -eq 1 ]]; then
+        if command -v nvcc >/dev/null 2>&1 && command -v cmake >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+          print_info "NVIDIA GPU and CUDA compilation tools (nvcc, cmake, git) detected."
+          print_info "Building CUDA backend from source..."
+          
+          BUILD_DIR="$TOOLS_DIR/build-sd"
+          JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+          
+          if [[ ! -d "$BUILD_DIR" ]]; then
+            print_info "Cloning stable-diffusion.cpp..."
+            git clone https://github.com/leejet/stable-diffusion.cpp.git "$BUILD_DIR"
+          fi
+          
+          PUSHED_DIR="$(pwd)"
+          cd "$BUILD_DIR"
+          
+          print_info "Checking out pinned tag $SD_RELEASE..."
+          git fetch origin
+          git checkout -f "$SD_RELEASE"
+          git submodule update --init --recursive
+          
+          rm -rf build-cuda && mkdir build-cuda && cd build-cuda
+          
+          print_info "Running cmake for CUDA backend..."
+          if cmake .. -DSD_CUDA=ON -DSD_BUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA_FORCE_MMQ=ON && \
+             cmake --build . --config Release -j"$JOBS"; then
+            
+            mkdir -p "$CUDA_BACKEND_DIR"
+            if [[ -f bin/sd-server ]]; then
+              cp bin/sd-server "$CUDA_BACKEND_DIR/sd-cuda"
+              cp bin/sd-server "$CUDA_BACKEND_DIR/sd-server-cuda"
+            else
+              print_fail "CUDA build succeeded but bin/sd-server was not found."
+              cd "$PUSHED_DIR"
+              exit 1
+            fi
+            
+            if [[ -f bin/sd ]]; then
+              cp bin/sd "$CUDA_BACKEND_DIR/sd-cli-cuda"
+            elif [[ -f bin/sd-cli ]]; then
+              cp bin/sd-cli "$CUDA_BACKEND_DIR/sd-cli-cuda"
+            fi
+            
+            SO_PATH_CUDA=$(find . -name "libstable-diffusion.so" | head -n 1)
+            if [[ -n "$SO_PATH_CUDA" ]]; then
+              cp "$SO_PATH_CUDA" "$CUDA_BACKEND_DIR/"
+            fi
+            
+            chmod +x "$CUDA_BACKEND_DIR/sd-cuda" "$CUDA_BACKEND_DIR/sd-server-cuda" 2>/dev/null || true
+            if [[ -f "$CUDA_BACKEND_DIR/sd-cli-cuda" ]]; then
+              chmod +x "$CUDA_BACKEND_DIR/sd-cli-cuda" 2>/dev/null || true
+            fi
+            print_ok "CUDA backend compiled and installed successfully from source."
+          else
+            print_warn "CUDA backend build from source failed. Falling back to Vulkan."
+          fi
+          cd "$PUSHED_DIR"
+        else
+          print_warn "CUDA compilation tools (nvcc, cmake, and/or git) are missing."
+          print_info "To compile the CUDA backend, install the NVIDIA CUDA Toolkit, cmake, and git."
+          print_info "Falling back to Vulkan."
+        fi
+      fi
+    else
+      print_info "Declined CUDA setup. Using Vulkan GPU backend instead."
+    fi
+  else
+    print_ok "CUDA backend already ready."
+  fi
 fi
 fi
 
@@ -396,10 +505,14 @@ fi
 
 if [[ -d "$FRONTEND_NODE_MODULES" && ! -L "$FRONTEND_NODE_MODULES" ]]; then
   print_info "Migrating existing node_modules to $OS_LABEL..."
-  mv "$FRONTEND_NODE_MODULES" "$OS_NODE_MODULES"
+  if [[ -d "$OS_NODE_MODULES" ]]; then
+    rm -rf "$FRONTEND_NODE_MODULES"
+  else
+    mv "$FRONTEND_NODE_MODULES" "$OS_NODE_MODULES"
+  fi
 fi
 
-rm -f "$FRONTEND_NODE_MODULES"
+rm -rf "$FRONTEND_NODE_MODULES"
 mkdir -p "$OS_NODE_MODULES"
 ln -sf "$OS_LABEL" "$FRONTEND_NODE_MODULES"
 

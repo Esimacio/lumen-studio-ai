@@ -139,7 +139,7 @@ cd "$BUILD_DIR"
 echo ""
 echo "=== Building CUDA Backend ==="
 rm -rf build-cuda && mkdir build-cuda && cd build-cuda
-cmake .. -DSD_CUDA=ON -DSD_BUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
+cmake .. -DSD_CUDA=ON -DSD_BUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA_FORCE_MMQ=ON
 cmake --build . --config Release -j"$JOBS"
 
 echo "Copying CUDA binaries..."

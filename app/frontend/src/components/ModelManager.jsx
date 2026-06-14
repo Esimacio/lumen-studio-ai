@@ -96,7 +96,7 @@ const COREML_MODEL_LIBRARY = [
   },
 ];
 
-function ModelManager({ activeModel, setActiveModel, serverRunning, setServerRunning, constraints, backendOptions, showAlert = async ({ message }) => window.alert(message), showConfirm = async ({ message }) => window.confirm(message), activeTab }) {
+function ModelManager({ activeModel, setActiveModel, serverRunning, setServerRunning, constraints, setConstraints, telemetry, backendOptions, showAlert = async ({ message }) => window.alert(message), showConfirm = async ({ message }) => window.confirm(message), activeTab }) {
   const [localModels, setLocalModels] = useState([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [downloadingModelId, setDownloadingModelId] = useState(null);
@@ -111,6 +111,7 @@ function ModelManager({ activeModel, setActiveModel, serverRunning, setServerRun
   const [isUnloading, setIsUnloading] = useState(false);
   const [unloadProgress, setUnloadProgress] = useState({ progress: 0, phase: "" });
   const [pendingLoadModel, setPendingLoadModel] = useState(null);
+  const [vramWarning, setVramWarning] = useState(null);
   const [backendInfo, setBackendInfo] = useState({ backendMode: "", backendBinary: "", backendDevice: "" });
 
   const cancelLoadRef = React.useRef(false);
@@ -320,16 +321,39 @@ function ModelManager({ activeModel, setActiveModel, serverRunning, setServerRun
     await fetchModels();
   };
 
+  // Check VRAM and trigger warning or load directly
+  const checkVramAndLoad = async (modelId) => {
+    const modelInfo = getLocalModelInfo(modelId);
+    if (modelInfo && telemetry && telemetry.vram_total_gb > 0) {
+      const isCpuMode = constraints.backendType === "cpu" || !constraints.useGpu;
+      const isOpenVino = modelInfo.backendType === "openvino-npu";
+      if (!isCpuMode && !isOpenVino) {
+        const freeVramGb = telemetry.vram_total_gb - telemetry.vram_used_gb;
+        const modelSizeGb = (modelInfo.sizeBytes || 0) / (1024 * 1024 * 1024);
+        if (modelSizeGb > freeVramGb) {
+          setVramWarning({
+            modelId,
+            modelSizeGb,
+            freeVramGb,
+            totalVramGb: telemetry.vram_total_gb,
+          });
+          return;
+        }
+      }
+    }
+    await performLoadModel(modelId);
+  };
+
   // Start the model server backend
   const handleLoadModel = async (modelId) => {
     if (activeModel && activeModel !== modelId && serverRunning) {
       setPendingLoadModel(modelId);
       return;
     }
-    await performLoadModel(modelId);
+    await checkVramAndLoad(modelId);
   };
 
-  const performLoadModel = async (modelId) => {
+  const performLoadModel = async (modelId, forcedConstraints = null) => {
     const isTauriDesktop = typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined;
     const isLocalServerMode = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
     const backendStatus = await getBackendStatus();
@@ -373,27 +397,28 @@ function ModelManager({ activeModel, setActiveModel, serverRunning, setServerRun
     try {
       const modelInfo = getLocalModelInfo(modelId);
       const isCoreMLModel = modelInfo?.format === "CoreML" || modelInfo?.backendType === "apple-npu";
+      const activeConstraints = forcedConstraints || constraints;
       const loadConstraints = isCoreMLModel
         ? {
-            ...constraints,
+            ...activeConstraints,
             backendType: "apple-npu",
             useGpu: true,
             width: 512,
             height: 512,
-            steps: constraints.steps || 20,
-            cfgScale: constraints.cfgScale || 7,
+            steps: activeConstraints.steps || 20,
+            cfgScale: activeConstraints.cfgScale || 7,
           }
         : modelInfo?.backendType === "openvino-npu"
         ? {
-            ...constraints,
+            ...activeConstraints,
             backendType: "openvino-npu",
             useGpu: true,
-            width: constraints.width >= 1024 ? 1024 : 512,
-            height: constraints.height >= 1024 ? 1024 : 512,
-            steps: Math.max(1, Math.min(8, constraints.steps || 4)),
-            cfgScale: constraints.cfgScale || 1,
+            width: activeConstraints.width >= 1024 ? 1024 : 512,
+            height: activeConstraints.height >= 1024 ? 1024 : 512,
+            steps: Math.max(1, Math.min(8, activeConstraints.steps || 4)),
+            cfgScale: activeConstraints.cfgScale || 1,
           }
-        : constraints;
+        : activeConstraints;
       const response = await startServer(modelId, loadConstraints);
       console.log(response);
       
@@ -466,7 +491,7 @@ function ModelManager({ activeModel, setActiveModel, serverRunning, setServerRun
     setPendingLoadModel(null);
     await handleUnloadModel();
     if (nextModel) {
-      await performLoadModel(nextModel);
+      await checkVramAndLoad(nextModel);
     }
   };
 
@@ -984,6 +1009,63 @@ function ModelManager({ activeModel, setActiveModel, serverRunning, setServerRun
               <button className="m3-btn m3-btn-filled" onClick={handleUnloadThenLoad} disabled={isUnloading}>
                 {isUnloading ? <RefreshCw className="progress-spinner" size={14} /> : <RefreshCw size={14} />}
                 <span>Unload and Load</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {vramWarning && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+          <div className="m3-card" style={{ maxWidth: "480px", width: "100%", margin: 0, padding: "24px", border: "1px solid var(--md-sys-color-error)", boxShadow: "0 8px 32px rgba(0, 0, 0, 0.45)", background: "var(--md-sys-color-surface)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+              <AlertTriangle size={28} style={{ color: "var(--md-sys-color-error)" }} />
+              <h3 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0, color: "var(--md-sys-color-on-surface)" }}>VRAM Limit Exceeded</h3>
+            </div>
+            <p style={{ fontSize: "0.92rem", color: "var(--md-sys-color-on-surface-variant)", lineHeight: 1.5, marginBottom: "20px", margin: 0 }}>
+              The model <strong style={{ color: "var(--md-sys-color-on-surface)" }}>{vramWarning.modelId}</strong> is approximately <strong>{vramWarning.modelSizeGb.toFixed(1)} GB</strong>, which exceeds your currently available GPU VRAM of <strong>{vramWarning.freeVramGb.toFixed(1)} GB free</strong> (out of {vramWarning.totalVramGb.toFixed(1)} GB total).
+              <br /><br />
+              Loading this model on your GPU may fail, crash the backend, or cause extremely slow generation due to memory spilling.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", flexWrap: "wrap" }}>
+              <button 
+                className="m3-btn m3-btn-outlined" 
+                onClick={() => setVramWarning(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="m3-btn m3-btn-tonal"
+                style={{ borderColor: "var(--md-sys-color-primary)", color: "var(--md-sys-color-primary)" }}
+                onClick={async () => {
+                  const targetModel = vramWarning.modelId;
+                  setVramWarning(null);
+                  if (setConstraints) {
+                    setConstraints((prev) => ({
+                      ...prev,
+                      backendType: "cpu",
+                      useGpu: false,
+                    }));
+                  }
+                  const cpuConstraints = {
+                    ...constraints,
+                    backendType: "cpu",
+                    useGpu: false,
+                  };
+                  await performLoadModel(targetModel, cpuConstraints);
+                }}
+              >
+                Load on CPU
+              </button>
+              <button 
+                className="m3-btn m3-btn-error" 
+                onClick={async () => {
+                  const targetModel = vramWarning.modelId;
+                  setVramWarning(null);
+                  await performLoadModel(targetModel);
+                }}
+              >
+                Proceed anyway (GPU)
               </button>
             </div>
           </div>
