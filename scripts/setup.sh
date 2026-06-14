@@ -622,21 +622,40 @@ fi
 cd "$FRONTEND_DIR"
 export PATH="$NODE_DIR/bin:$PATH"
 
-if "$NPM_BIN" install --prefer-offline; then
-  print_ok "Dependencies installed!"
+if [ "$USE_SYMLINKS" = false ]; then
+  if "$NPM_BIN" install --prefer-offline --no-bin-links; then
+    print_ok "Dependencies installed!"
+  else
+    print_fail "npm install failed."
+    exit 1
+  fi
 else
-  print_fail "npm install failed."
-  exit 1
+  if "$NPM_BIN" install --prefer-offline; then
+    print_ok "Dependencies installed!"
+  else
+    print_fail "npm install failed."
+    exit 1
+  fi
 fi
 
 # ── Step 4: Build frontend ──────────────────────────────────────────────────
 print_step 4 $TOTAL_STEPS "Building frontend -> app/dist/"
 
-if "$NPM_BIN" run build; then
-  print_ok "Frontend built!"
+if [ "$USE_SYMLINKS" = false ]; then
+  # If symlinks are disabled, run vite directly using the local node executable.
+  if "$NODE_BIN" node_modules/vite/bin/vite.js build; then
+    print_ok "Frontend built!"
+  else
+    print_fail "Frontend build failed."
+    exit 1
+  fi
 else
-  print_fail "Frontend build failed."
-  exit 1
+  if "$NPM_BIN" run build; then
+    print_ok "Frontend built!"
+  else
+    print_fail "Frontend build failed."
+    exit 1
+  fi
 fi
 
 # ── Done ────────────────────────────────────────────────────────────────────
