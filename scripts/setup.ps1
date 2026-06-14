@@ -158,7 +158,7 @@ function Expand-WithProgress {
 # ══════════════════════════════════════════════════════════════════════════════
 Print-Header
 
-$steps = 4
+$steps = 5
 
 # ── Step 1: Portable Node.js ──────────────────────────────────────────────────
 Print-Step 1 $steps "Setting up portable Node.js (app/tools/node-win/)"
@@ -420,7 +420,14 @@ if ($hasNvidia) {
 }
 
 # ── Step 3: npm install ───────────────────────────────────────────────────────
-Print-Step 3 $steps "Installing frontend dependencies (app/frontend/)"
+Print-Step 3 $steps "Setting up llama.cpp text backends (Vulkan + CPU)"
+& (Join-Path $scriptDir "setup-llama.ps1")
+if (-not $?) {
+    Print-Fail "llama.cpp setup failed."
+    Read-Host; exit 1
+}
+
+Print-Step 4 $steps "Installing frontend dependencies (app/frontend/)"
 Write-Host ""
 
 if (-not (Test-Path $npmCmd)) {
@@ -474,7 +481,7 @@ try {
     Print-OK "Dependencies installed!"
 
     # ── Step 4: Build frontend ────────────────────────────────────────────────
-    Print-Step 4 $steps "Building frontend -> app/dist/"
+    Print-Step 5 $steps "Building frontend -> app/dist/"
     Write-Host ""
 
     & $npmCmd run build 2>&1

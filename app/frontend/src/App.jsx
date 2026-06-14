@@ -4,6 +4,7 @@ import TopStatusBar from "./components/TopStatusBar";
 import Generator from "./components/Generator";
 import ModelManager from "./components/ModelManager";
 import ImageConstraints from "./components/ImageConstraints";
+import TextChat from "./components/TextChat";
 import { cleanupCandidates, formatBytes, getCleanupCandidates, getDiagnostics, getHardwareSpecs, getHealth, getTelemetry, getBackendOptions, getBackendStatus, listGeneratedOutputs, stopServer } from "./services/api";
 import "./App.css";
 
@@ -473,6 +474,14 @@ function App() {
             showAlert={showAlert}
             showConfirm={showConfirm}
             activeTab={activeTab}
+          />
+        </div>
+
+        <div style={{ display: activeTab === "chat" ? "flex" : "none", flex: 1, flexDirection: "column", overflow: "hidden" }}>
+          <TextChat
+            specs={specs}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
           />
         </div>
 

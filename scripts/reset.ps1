@@ -7,7 +7,7 @@ $appDir    = Join-Path $rootDir "app"
 
 Write-Host ""
 Write-Host "  ============================================================" -ForegroundColor Yellow
-Write-Host "   Resetting Local-AI-Image-Generator..." -ForegroundColor Yellow
+Write-Host "   Resetting Local AI Studio..." -ForegroundColor Yellow
 Write-Host "  ============================================================" -ForegroundColor Yellow
 Write-Host ""
 
@@ -21,8 +21,15 @@ if (Test-Path $toolsDir) {
 # Delete backend
 $backendDir = Join-Path $appDir "backend"
 if (Test-Path $backendDir) {
-    Write-Host "   >> Removing backend binaries..." -ForegroundColor Cyan
+    Write-Host "   >> Removing image backend binaries..." -ForegroundColor Cyan
     Remove-Item $backendDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# Delete llama.cpp backend
+$llmBackendDir = Join-Path $appDir "llm-backend"
+if (Test-Path $llmBackendDir) {
+    Write-Host "   >> Removing llama.cpp text backend binaries..." -ForegroundColor Cyan
+    Remove-Item $llmBackendDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # Delete dist
@@ -32,29 +39,37 @@ if (Test-Path $distDir) {
     Remove-Item $distDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Preserve models
+# Preserve image models
 $modelsDir = Join-Path $appDir "models"
 if (Test-Path $modelsDir) {
-    Write-Host "   >> Preserving downloaded models in app/models." -ForegroundColor Cyan
+    Write-Host "   >> Preserving image models in app/models." -ForegroundColor Cyan
 }
 
-# Delete node_modules in frontend
-$nodeModulesDir = Join-Path $appDir "frontend\node_modules"
-if (Test-Path $nodeModulesDir) {
-    Write-Host "   >> Removing frontend node_modules..." -ForegroundColor Cyan
-    Remove-Item $nodeModulesDir -Recurse -Force -ErrorAction SilentlyContinue
+# Preserve text models
+$llmModelsDir = Join-Path $appDir "llm-models"
+if (Test-Path $llmModelsDir) {
+    Write-Host "   >> Preserving text models in app/llm-models." -ForegroundColor Cyan
 }
 
-$nodeModulesMac = Join-Path $appDir "frontend\node_modules_mac"
-if (Test-Path $nodeModulesMac) {
-    Write-Host "   >> Removing frontend node_modules_mac..." -ForegroundColor Cyan
-    Remove-Item $nodeModulesMac -Recurse -Force -ErrorAction SilentlyContinue
+# Preserve OpenVINO models
+$openVinoModelsDir = Join-Path $appDir "openvino-models"
+if (Test-Path $openVinoModelsDir) {
+    Write-Host "   >> Preserving OpenVINO models in app/openvino-models." -ForegroundColor Cyan
 }
 
-$nodeModulesLinux = Join-Path $appDir "frontend\node_modules_linux"
-if (Test-Path $nodeModulesLinux) {
-    Write-Host "   >> Removing frontend node_modules_linux..." -ForegroundColor Cyan
-    Remove-Item $nodeModulesLinux -Recurse -Force -ErrorAction SilentlyContinue
+# Delete all frontend dependency folders, including platform-specific copies
+$frontendDir = Join-Path $appDir "frontend"
+Get-ChildItem $frontendDir -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -eq "node_modules" -or $_.Name -like "node_modules_*" } |
+    ForEach-Object {
+        Write-Host "   >> Removing frontend $($_.Name)..." -ForegroundColor Cyan
+        Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+$activeOsFile = Join-Path $frontendDir ".active_modules_os"
+if (Test-Path $activeOsFile) {
+    Write-Host "   >> Removing frontend platform marker..." -ForegroundColor Cyan
+    Remove-Item $activeOsFile -Force -ErrorAction SilentlyContinue
 }
 
 
@@ -67,7 +82,7 @@ if (Test-Path $lockFile) {
 
 Write-Host ""
 Write-Host "  ============================================================" -ForegroundColor Green
-Write-Host "   Reset complete. Models and generated outputs were preserved." -ForegroundColor Green
+Write-Host "   Reset complete. Image models, text models, OpenVINO models, and generated outputs were preserved." -ForegroundColor Green
 Write-Host "  ============================================================" -ForegroundColor Green
 Write-Host ""
 Read-Host "  Press Enter to close..."

@@ -9,6 +9,8 @@ set DIST=%APP%\dist\index.html
 set SETUP=%~dp0scripts\setup.ps1
 set CUDA_BACKEND=%APP%\backend\win\cuda\sd-cuda.exe
 set VULKAN_BACKEND=%APP%\backend\win\vulkan\sd-vulkan.exe
+set LLM_VULKAN_BACKEND=%APP%\llm-backend\win\vulkan\llama-server.exe
+set LLM_CPU_BACKEND=%APP%\llm-backend\win\cpu\llama-server.exe
 set SERVE=%~dp0scripts\serve.cjs
 if "%FRONTEND_PORT%"=="" set FRONTEND_PORT=1420
 set SETUP_REASON=
@@ -26,6 +28,10 @@ if not exist "%NPM%" (
 )
 if not exist "%DIST%" (
     set SETUP_REASON=Frontend build is missing.
+    goto :run_setup
+)
+if not exist "%LLM_VULKAN_BACKEND%" if not exist "%LLM_CPU_BACKEND%" (
+    set SETUP_REASON=llama.cpp text backend is missing.
     goto :run_setup
 )
 if exist "%CUDA_BACKEND%" goto :launch
@@ -88,6 +94,7 @@ echo  ============================================================
 echo   Running!
 echo   Web UI:     http://localhost:%FRONTEND_PORT%
 echo   GPU API:    Auto-selected by the app (starts at 8080)
+echo   Text API:   Starts when a GGUF model is loaded (port 10086)
 echo.
 echo   Press Ctrl+C in this window to stop all services.
 echo  ============================================================

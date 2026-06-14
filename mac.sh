@@ -18,6 +18,11 @@ fi
 NODE_DIR="$APP_DIR/tools/node-mac"
 NODE_BIN="$NODE_DIR/bin/node"
 BACKEND_PATH="$APP_DIR/backend/mac/sd"
+if [[ "$(uname -m)" == "arm64" ]]; then
+  LLM_BACKEND_PATH="$APP_DIR/llm-backend/mac/arm64/llama-server"
+else
+  LLM_BACKEND_PATH="$APP_DIR/llm-backend/mac/x64/llama-server"
+fi
 PLATFORM_LABEL="macOS"
 
 DIST_INDEX="$APP_DIR/dist/index.html"
@@ -102,6 +107,9 @@ fi
 if [[ ! -x "$BACKEND_PATH" ]]; then
   SETUP_REASON="No macOS Metal backend binary is installed."
 fi
+if [[ ! -x "$LLM_BACKEND_PATH" ]]; then
+  SETUP_REASON="No macOS llama.cpp text backend is installed."
+fi
 
 if [[ -n "$SETUP_REASON" ]]; then
   echo ""
@@ -176,6 +184,7 @@ echo "  ============================================================"
 echo "   Running!"
 echo "   Web UI:     http://localhost:${FRONTEND_PORT}"
 echo "   GPU API:    Auto-selected by the app (starts at 8080)"
+echo "   Text API:   Starts when a GGUF model is loaded (port 10086)"
 echo ""
 echo "   Press Ctrl+C in this window to stop all services."
 echo "  ============================================================"

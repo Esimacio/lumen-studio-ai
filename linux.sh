@@ -127,8 +127,13 @@ fi
 # At minimum we need CPU or Vulkan backend on Linux, and both CLI and server binaries must be executable
 CPU_SERVER_PATH="$APP_DIR/backend/linux/cpu/sd-server-cpu"
 VULKAN_SERVER_PATH="$APP_DIR/backend/linux/vulkan/sd-server-vulkan"
+LLM_VULKAN_PATH="$APP_DIR/llm-backend/linux/vulkan/llama-server"
+LLM_CPU_PATH="$APP_DIR/llm-backend/linux/cpu/llama-server"
 if [[ ! -x "$CPU_BACKEND_PATH" || ! -x "$CPU_SERVER_PATH" ]] && [[ ! -x "$BACKEND_PATH" || ! -x "$VULKAN_SERVER_PATH" ]]; then
   SETUP_REASON="Linux backend binaries are missing or not executable."
+fi
+if [[ ! -x "$LLM_VULKAN_PATH" && ! -x "$LLM_CPU_PATH" ]]; then
+  SETUP_REASON="Linux llama.cpp text backend is missing or not executable."
 fi
 
 if [[ -n "$SETUP_REASON" ]]; then
@@ -204,6 +209,7 @@ echo "  ============================================================"
 echo "   Running!"
 echo "   Web UI:     http://localhost:${FRONTEND_PORT}"
 echo "   GPU API:    Auto-selected by the app (starts at 8080)"
+echo "   Text API:   Starts when a GGUF model is loaded (port 10086)"
 echo ""
 echo "   Press Ctrl+C in this window to stop all services."
 echo "  ============================================================"

@@ -258,7 +258,7 @@ if [[ "$PLATFORM" == "Linux" ]]; then
   check_glibc
 fi
 
-TOTAL_STEPS=4
+TOTAL_STEPS=5
 
 # ── Step 1: Portable Node.js ────────────────────────────────────────────────
 print_step 1 $TOTAL_STEPS "Setting up portable Node.js ($NODE_DIR/)"
@@ -541,7 +541,10 @@ fi
 fi
 
 # ── Step 3: npm install ─────────────────────────────────────────────────────
-print_step 3 $TOTAL_STEPS "Installing frontend dependencies (app/frontend/)"
+print_step 3 $TOTAL_STEPS "Setting up llama.cpp text backend"
+bash "$SCRIPT_DIR/setup-llama.sh"
+
+print_step 4 $TOTAL_STEPS "Installing frontend dependencies (app/frontend/)"
 
 if [[ ! -x "$NPM_BIN" ]]; then
   print_fail "Portable npm was not found at $NPM_BIN"
@@ -639,7 +642,7 @@ else
 fi
 
 # ── Step 4: Build frontend ──────────────────────────────────────────────────
-print_step 4 $TOTAL_STEPS "Building frontend -> app/dist/"
+print_step 5 $TOTAL_STEPS "Building frontend -> app/dist/"
 
 if [ "$USE_SYMLINKS" = false ]; then
   # If symlinks are disabled, run vite directly using the local node executable.

@@ -1,5 +1,5 @@
 import React, { memo } from "react";
-import { Image, FolderDown, Sliders, Shield, Terminal } from "lucide-react";
+import { Image, FolderDown, MessageSquare, Sliders, Shield, Terminal } from "lucide-react";
 
 function Sidebar({ activeTab, setActiveTab, specs }) {
   return (
@@ -19,6 +19,14 @@ function Sidebar({ activeTab, setActiveTab, specs }) {
           >
             <Image size={20} />
             <span>Image Generator</span>
+          </div>
+
+          <div
+            className={`nav-item ${activeTab === "chat" ? "active" : ""}`}
+            onClick={() => setActiveTab("chat")}
+          >
+            <MessageSquare size={20} />
+            <span>Text Chat</span>
           </div>
 
           <div

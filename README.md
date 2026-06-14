@@ -1,6 +1,16 @@
 # 🖼️ Local AI Image Generator
 
-### An easy, zero-setup Stable Diffusion GUI for Windows, Linux, and macOS. Run GGUF & Safetensors models offline without Python configuration.
+### An easy, zero-setup local image and text AI studio for Windows, Linux, and macOS.
+
+## Text Chat
+
+The Text Chat workspace runs official `llama.cpp` binaries and keeps language models separate from image models:
+
+- Image models: `app/models`
+- Text GGUF models: `app/llm-models`
+- Portable llama.cpp binaries: `app/llm-backend/<platform>`
+
+The normal platform setup installs both image and text backends. Text and image engines are mutually exclusive by default to avoid exhausting shared RAM or VRAM. A small Qwen2.5 Coder starter model is available from the Text Chat download panel.
 
 
 

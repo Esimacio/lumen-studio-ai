@@ -1,29 +1,39 @@
-# Ignore large Stable Diffusion model weights (exceeds GitHub file limits)
-app/models/*.safetensors
-app/models/*.gguf
-app/models/*.ckpt
-app/models
+# Downloaded AI models
+app/models/
 app/openvino-models/
+app/llm-models/
+
+# Downloaded portable runtimes/backends
+app/backend/
+app/llm-backend/
+app/tools/
+
+# Generated files
+app/dist/
 app/outputs/
 
-# Ignore generated frontend build output
-app/dist/
-
-# Ignore portable Node.js binaries and packages
-app/tools/
+# Dependencies and platform-specific copies
 **/node_modules/
-**/node_modules_mac/
+**/node_modules_*/
+**/node_modules_windows/
 **/node_modules_linux/
-node_modules/
+**/node_modules_mac/
 **/.active_modules_os
 
-# Ignore backend folder completely (contains massive DLLs, EXEs, and ZIPs >1GB)
-app/backend/
+# Partial downloads and archives
+*.part
+*.tmp
+app/tools/*.zip
+app/tools/*.tar.gz
+app/tools/*.tar.xz
 
-# Ignore local IDE and OS temp files
+# Logs and caches
+*.log
+__pycache__/
+*.pyc
+
+# OS/editor files
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-*.log
-*.tmp

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Local AI Image Generator - Linux/macOS Reset Script
+# Local AI Studio - Linux/macOS Reset Script
 # Resets portable app dependencies/builds while preserving user models and outputs.
 #
 
@@ -12,7 +12,7 @@ APP_DIR="$ROOT_DIR/app"
 
 echo ""
 echo "  ============================================================"
-echo "   Resetting Local-AI-Image-Generator..."
+echo "   Resetting Local AI Studio..."
 echo "  ============================================================"
 echo ""
 
@@ -24,8 +24,14 @@ fi
 
 # Delete backend
 if [[ -d "$APP_DIR/backend" ]]; then
-  echo "   >> Removing backend binaries..."
+  echo "   >> Removing image backend binaries..."
   rm -rf "$APP_DIR/backend"
+fi
+
+# Delete llama.cpp backend
+if [[ -d "$APP_DIR/llm-backend" ]]; then
+  echo "   >> Removing llama.cpp text backend binaries..."
+  rm -rf "$APP_DIR/llm-backend"
 fi
 
 # Delete dist
@@ -34,25 +40,32 @@ if [[ -d "$APP_DIR/dist" ]]; then
   rm -rf "$APP_DIR/dist"
 fi
 
-# Preserve models
+# Preserve image models
 if [[ -d "$APP_DIR/models" ]]; then
-  echo "   >> Preserving downloaded models in app/models."
+  echo "   >> Preserving image models in app/models."
 fi
 
-# Delete node_modules in frontend
-if [[ -L "$APP_DIR/frontend/node_modules" || -d "$APP_DIR/frontend/node_modules" ]]; then
-  echo "   >> Removing frontend node_modules..."
-  rm -rf "$APP_DIR/frontend/node_modules"
+# Preserve text models
+if [[ -d "$APP_DIR/llm-models" ]]; then
+  echo "   >> Preserving text models in app/llm-models."
 fi
 
-if [[ -d "$APP_DIR/frontend/node_modules_mac" ]]; then
-  echo "   >> Removing frontend node_modules_mac..."
-  rm -rf "$APP_DIR/frontend/node_modules_mac"
+# Preserve OpenVINO models
+if [[ -d "$APP_DIR/openvino-models" ]]; then
+  echo "   >> Preserving OpenVINO models in app/openvino-models."
 fi
 
-if [[ -d "$APP_DIR/frontend/node_modules_linux" ]]; then
-  echo "   >> Removing frontend node_modules_linux..."
-  rm -rf "$APP_DIR/frontend/node_modules_linux"
+# Delete all frontend dependency folders, including platform-specific copies
+for modules_dir in "$APP_DIR/frontend/node_modules" "$APP_DIR/frontend"/node_modules_*; do
+  if [[ -L "$modules_dir" || -d "$modules_dir" ]]; then
+    echo "   >> Removing frontend $(basename "$modules_dir")..."
+    rm -rf "$modules_dir"
+  fi
+done
+
+if [[ -f "$APP_DIR/frontend/.active_modules_os" ]]; then
+  echo "   >> Removing frontend platform marker..."
+  rm -f "$APP_DIR/frontend/.active_modules_os"
 fi
 
 # Delete package-lock.json in frontend
@@ -63,7 +76,7 @@ fi
 
 echo ""
 echo "  ============================================================"
-echo "   Reset complete. Models and generated outputs were preserved."
+echo "   Reset complete. Image models, text models, OpenVINO models, and generated outputs were preserved."
 echo "  ============================================================"
 echo ""
 read -rp "  Press Enter to close..."

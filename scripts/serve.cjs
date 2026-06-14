@@ -18,9 +18,11 @@ function readPort(value, fallback) {
 
 const PORT_FRONTEND = readPort(process.env.PORT || process.env.FRONTEND_PORT, 1420);
 const PREFERRED_BACKEND_PORT = readPort(process.env.BACKEND_PORT || process.env.SD_BACKEND_PORT, 8080);
+const PREFERRED_LLM_PORT = readPort(process.env.LLM_PORT, 10086);
 let PORT_BACKEND = PREFERRED_BACKEND_PORT;
+let PORT_LLM = PREFERRED_LLM_PORT;
 const MAX_JSON_BODY_BYTES = 64 * 1024 * 1024;
-const SERVER_BUILD = "polish-setup-v1";
+const SERVER_BUILD = "text-image-v1";
 const ROOT    = path.join(__dirname, "..");
 const DIST    = path.join(ROOT, "app", "dist");
 const osPlatform = process.platform;
@@ -68,6 +70,18 @@ const MODELS  = path.join(ROOT, "app", "models");
 if (!fs.existsSync(MODELS)) {
   fs.mkdirSync(MODELS, { recursive: true });
 }
+const LLM_MODELS = path.join(ROOT, "app", "llm-models");
+if (!fs.existsSync(LLM_MODELS)) {
+  fs.mkdirSync(LLM_MODELS, { recursive: true });
+}
+const LLM_BACKEND_PATHS = {
+  winVulkan: path.join(ROOT, "app", "llm-backend", "win", "vulkan", "llama-server.exe"),
+  winCpu: path.join(ROOT, "app", "llm-backend", "win", "cpu", "llama-server.exe"),
+  linuxVulkan: path.join(ROOT, "app", "llm-backend", "linux", "vulkan", "llama-server"),
+  linuxCpu: path.join(ROOT, "app", "llm-backend", "linux", "cpu", "llama-server"),
+  macArm64: path.join(ROOT, "app", "llm-backend", "mac", "arm64", "llama-server"),
+  macX64: path.join(ROOT, "app", "llm-backend", "mac", "x64", "llama-server"),
+};
 const OPENVINO_MODELS = path.join(ROOT, "app", "openvino-models");
 if (!fs.existsSync(OPENVINO_MODELS)) {
   fs.mkdirSync(OPENVINO_MODELS, { recursive: true });
@@ -100,6 +114,17 @@ let openvinoPort = null;
 let openvinoModel = null;
 let openvinoWidth = null;
 let openvinoHeight = null;
+let llmProc = null;
+let llmReady = false;
+let llmError = null;
+let llmSettings = {
+  model: null,
+  threads: Math.max(1, Math.min(16, os.cpus().length || 4)),
+  contextSize: 4096,
+  gpuLayers: -1,
+  backendMode: "",
+  backendBinary: "",
+};
 let backendLoadState = {
   active: false,
   phase: "",
@@ -555,6 +580,102 @@ async function findAvailableBackendPort() {
   }
 
   throw new Error(`No free backend port found. Tried ${PREFERRED_BACKEND_PORT} and 28088-28120.`);
+}
+
+async function findAvailableLlmPort() {
+  const preferred = await checkPort(PREFERRED_LLM_PORT);
+  if (preferred.available) return PREFERRED_LLM_PORT;
+
+  for (let port = 28121; port <= 28160; port += 1) {
+    const candidate = await checkPort(port);
+    if (candidate.available) {
+      console.log(`  [llm] Preferred port ${PREFERRED_LLM_PORT} is busy; using ${port} instead.`);
+      return port;
+    }
+  }
+
+  throw new Error(`No free LLM port found. Tried ${PREFERRED_LLM_PORT} and 28121-28160.`);
+}
+
+function getLlmBackend() {
+  const candidates = osPlatform === "win32"
+    ? [
+        { path: LLM_BACKEND_PATHS.winVulkan, mode: "Auto (Vulkan/CPU)" },
+        { path: LLM_BACKEND_PATHS.winCpu, mode: "CPU" },
+      ]
+    : osPlatform === "darwin"
+      ? [{
+          path: process.arch === "arm64" ? LLM_BACKEND_PATHS.macArm64 : LLM_BACKEND_PATHS.macX64,
+          mode: process.arch === "arm64" ? "Metal GPU" : "CPU",
+        }]
+      : [
+          { path: LLM_BACKEND_PATHS.linuxVulkan, mode: "Auto (Vulkan/CPU)" },
+          { path: LLM_BACKEND_PATHS.linuxCpu, mode: "CPU" },
+        ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate.path)) || null;
+}
+
+function getLlmModels() {
+  try {
+    return fs.readdirSync(LLM_MODELS)
+      .filter((filename) => filename.toLowerCase().endsWith(".gguf"))
+      .map((filename) => {
+        const stats = fs.statSync(path.join(LLM_MODELS, filename));
+        return {
+          filename,
+          name: filename,
+          sizeBytes: stats.size,
+          size: formatBytes(stats.size),
+          format: "GGUF",
+        };
+      });
+  } catch (_) {
+    return [];
+  }
+}
+
+function pingLlmReady() {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${PORT_LLM}/v1/models`, (res) => {
+      res.resume();
+      resolve(res.statusCode >= 200 && res.statusCode < 500);
+    });
+    req.setTimeout(1000, () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on("error", () => resolve(false));
+  });
+}
+
+async function waitForLlmReady(maxAttempts = 240) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (!llmProc) throw new Error(llmError || "llama.cpp exited during startup.");
+    if (await pingLlmReady()) {
+      llmReady = true;
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error("llama.cpp did not become ready within 2 minutes.");
+}
+
+function killLlm() {
+  return new Promise((resolve) => {
+    llmReady = false;
+    if (!llmProc) {
+      resolve();
+      return;
+    }
+    const proc = llmProc;
+    llmProc = null;
+    try { proc.kill("SIGTERM"); } catch (_) {}
+    setTimeout(() => {
+      try { proc.kill("SIGKILL"); } catch (_) {}
+      resolve();
+    }, 1200);
+  });
 }
 
 function getSetupPaths() {
@@ -1367,7 +1488,77 @@ function killBackend() {
   });
 }
 
+async function startLlm(settings = {}) {
+  const filename = path.basename(String(settings.model || ""));
+  const modelPath = path.join(LLM_MODELS, filename);
+  if (!filename || !pathInside(modelPath, LLM_MODELS) || !fs.existsSync(modelPath)) {
+    throw new Error("Select a downloaded GGUF text model first.");
+  }
+  if (!filename.toLowerCase().endsWith(".gguf")) {
+    throw new Error("Text generation requires a .gguf model.");
+  }
+
+  const backend = getLlmBackend();
+  if (!backend) {
+    throw new Error("llama.cpp is not installed. Run the platform setup script to install the text backend.");
+  }
+
+  await killBackend();
+  await killOpenVinoWorker();
+  await killLlm();
+  PORT_LLM = await findAvailableLlmPort();
+  llmError = null;
+  llmSettings = {
+    ...llmSettings,
+    model: filename,
+    threads: Math.max(1, Math.min(64, Number(settings.threads) || llmSettings.threads)),
+    contextSize: Math.max(512, Math.min(32768, Number(settings.contextSize) || 4096)),
+    gpuLayers: Number.isFinite(Number(settings.gpuLayers)) ? Number(settings.gpuLayers) : -1,
+    backendMode: backend.mode,
+    backendBinary: path.basename(backend.path),
+  };
+
+  const args = [
+    "--model", modelPath,
+    "--host", "127.0.0.1",
+    "--port", String(PORT_LLM),
+    "--ctx-size", String(llmSettings.contextSize),
+    "--threads", String(llmSettings.threads),
+    "--n-gpu-layers", String(llmSettings.gpuLayers),
+  ];
+  const spawnEnv = { ...process.env };
+  const backendDir = path.dirname(backend.path);
+  if (osPlatform === "linux") {
+    spawnEnv.LD_LIBRARY_PATH = backendDir + (spawnEnv.LD_LIBRARY_PATH ? `:${spawnEnv.LD_LIBRARY_PATH}` : "");
+  } else if (osPlatform === "darwin") {
+    spawnEnv.DYLD_LIBRARY_PATH = backendDir + (spawnEnv.DYLD_LIBRARY_PATH ? `:${spawnEnv.DYLD_LIBRARY_PATH}` : "");
+  }
+
+  console.log("  [llm] Starting:", backend.path, args.join(" "));
+  llmProc = spawn(backend.path, args, { stdio: "pipe", env: spawnEnv });
+  llmProc.stdout.on("data", (data) => process.stdout.write("  [llm] " + data.toString()));
+  llmProc.stderr.on("data", (data) => {
+    const output = data.toString();
+    process.stderr.write("  [llm-err] " + output);
+    if (/Vulkan\d+\s*:/i.test(output)) llmSettings.backendMode = "Vulkan GPU";
+    else if (/Metal/i.test(output) && /GPU|device/i.test(output)) llmSettings.backendMode = "Metal GPU";
+    else if (/\-\s+CPU\s+:/i.test(output) && llmSettings.backendMode.startsWith("Auto")) llmSettings.backendMode = "CPU";
+    if (/error|failed/i.test(output) && !/no error/i.test(output)) {
+      llmError = output.trim().slice(-1200);
+    }
+  });
+  llmProc.on("exit", (code) => {
+    llmReady = false;
+    llmProc = null;
+    if (code !== 0 && code !== null && !llmError) llmError = `llama.cpp exited with code ${code}`;
+    console.log("  [llm] exited with code", code);
+  });
+
+  await waitForLlmReady();
+}
+
 async function startBackend(settings = {}) {
+  await killLlm();
   if (settings.backendType === "openvino-npu") {
     await startOpenVinoWorker(settings);
     return;
@@ -1768,7 +1959,7 @@ function describeDownloadHttpError(statusCode, url, headers = {}) {
   return `HTTP ${statusCode}`;
 }
 
-function startModelDownload(url, overrideFilename = null) {
+function startModelDownload(url, overrideFilename = null, targetDir = MODELS, kind = "image") {
   if (downloadState.active && !overrideFilename) {
     console.log("  [download] Already downloading a model");
     return;
@@ -1790,7 +1981,7 @@ function startModelDownload(url, overrideFilename = null) {
     }
   }
 
-  const destPath = path.join(MODELS, filename);
+  const destPath = path.join(targetDir, filename);
   const tempPath = `${destPath}.part`;
   try { fs.unlinkSync(tempPath); } catch (_) {}
   downloadState = {
@@ -1801,7 +1992,8 @@ function startModelDownload(url, overrideFilename = null) {
     eta: 0,
     totalBytes: 0,
     downloadedBytes: 0,
-    error: null
+    error: null,
+    kind,
   };
 
   console.log(`  [download] Starting download of ${filename} from ${url}`);
@@ -1853,7 +2045,7 @@ function startModelDownload(url, overrideFilename = null) {
       try { fs.unlinkSync(tempPath); } catch (_) {}
       activeDownload = null;
       downloadState.active = false;
-      startModelDownload(redirectUrl, filename);
+      startModelDownload(redirectUrl, filename, targetDir, kind);
       return;
     }
 
@@ -1967,7 +2159,8 @@ function cancelModelDownload() {
       try { fs.unlinkSync(activeDownload.tempPath || activeDownload.destPath); } catch (_) {}
     }
   } else if (filename) {
-    try { fs.unlinkSync(`${path.join(MODELS, filename)}.part`); } catch (_) {}
+    const targetDir = downloadState.kind === "text" ? LLM_MODELS : MODELS;
+    try { fs.unlinkSync(`${path.join(targetDir, filename)}.part`); } catch (_) {}
   }
   activeDownload = null;
   downloadState = {
@@ -1979,6 +2172,7 @@ function cancelModelDownload() {
     totalBytes: 0,
     downloadedBytes: 0,
     error: "Download cancelled",
+    kind: downloadState.kind || "image",
   };
   console.log(`  [download] Cancelled download of ${filename}`);
   return true;
@@ -2282,16 +2476,16 @@ function deleteGeneratedOutputs(outputs = []) {
   return deleted;
 }
 
-function streamModelUpload(req, filename) {
+function streamModelUpload(req, filename, targetDir = MODELS, textOnly = false) {
   return new Promise((resolve, reject) => {
     const safeFilename = path.basename(filename || "");
     const lowerName = safeFilename.toLowerCase();
-    if (!safeFilename || !isModelFile(lowerName)) {
-      reject(new Error("Filename must end with .gguf, .safetensors, or .ckpt"));
+    if (!safeFilename || (textOnly ? !lowerName.endsWith(".gguf") : !isModelFile(lowerName))) {
+      reject(new Error(textOnly ? "Filename must end with .gguf" : "Filename must end with .gguf, .safetensors, or .ckpt"));
       return;
     }
 
-    const destPath = path.join(MODELS, safeFilename);
+    const destPath = path.join(targetDir, safeFilename);
     const tempPath = `${destPath}.part`;
     const out = fs.createWriteStream(tempPath);
     let finished = false;
@@ -2325,7 +2519,12 @@ function streamModelUpload(req, filename) {
         finished = true;
         fs.renameSync(tempPath, destPath);
         console.log(`  [api] Imported model file: ${safeFilename}`);
-        resolve(getModelInfo(safeFilename));
+        if (textOnly) {
+          const stats = fs.statSync(destPath);
+          resolve({ filename: safeFilename, name: safeFilename, sizeBytes: stats.size, size: formatBytes(stats.size), format: "GGUF" });
+        } else {
+          resolve(getModelInfo(safeFilename));
+        }
       } catch (err) {
         try { fs.unlinkSync(tempPath); } catch (_) {}
         reject(err);
@@ -2362,6 +2561,13 @@ const server = http.createServer(async (req, res) => {
       cleanupCandidates: getCleanupCandidates(),
       download: downloadState,
       generation: generationState,
+      llm: {
+        ready: llmReady,
+        running: llmProc !== null,
+        error: llmError,
+        settings: llmSettings,
+        port: PORT_LLM,
+      },
       hardware: getHardwareSpecs(),
       telemetry: getTelemetry(),
     });
@@ -2398,6 +2604,61 @@ const server = http.createServer(async (req, res) => {
       settings: currentSettings,
       build: SERVER_BUILD,
     });
+  }
+
+  if (req.url === "/api/llm/status" && req.method === "GET") {
+    const backend = getLlmBackend();
+    return json(res, 200, {
+      ready: llmReady,
+      running: llmProc !== null,
+      port: PORT_LLM,
+      preferredPort: PREFERRED_LLM_PORT,
+      error: llmError,
+      settings: llmSettings,
+      backendInstalled: Boolean(backend),
+      backendMode: backend?.mode || "",
+      backendPath: backend?.path || "",
+    });
+  }
+
+  if (req.url === "/api/llm/models" && req.method === "GET") {
+    return json(res, 200, { models: getLlmModels() });
+  }
+
+  if (req.url === "/api/llm/start" && req.method === "POST") {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    try {
+      await startLlm(body);
+      return json(res, 200, { ok: true, ready: llmReady, port: PORT_LLM, settings: llmSettings });
+    } catch (err) {
+      llmError = err.message || String(err);
+      await killLlm();
+      return json(res, 500, { ok: false, error: llmError });
+    }
+  }
+
+  if (req.url === "/api/llm/stop" && req.method === "POST") {
+    await killLlm();
+    return json(res, 200, { ok: true });
+  }
+
+  if (req.url === "/api/llm/chat" && req.method === "POST") {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    if (!llmReady) return json(res, 409, { ok: false, error: "Load a text model before sending a message." });
+    try {
+      const result = await requestJson(`http://127.0.0.1:${PORT_LLM}/v1/chat/completions`, {
+        model: llmSettings.model || "local-model",
+        messages: Array.isArray(body.messages) ? body.messages : [],
+        temperature: Number.isFinite(Number(body.temperature)) ? Number(body.temperature) : 0.7,
+        max_tokens: Math.max(1, Math.min(4096, Number(body.max_tokens) || 512)),
+        stream: false,
+      }, 300000);
+      return json(res, 200, result);
+    } catch (err) {
+      return json(res, 500, { ok: false, error: err.message || String(err) });
+    }
   }
 
   // GET /api/hardware-specs
@@ -2499,6 +2760,25 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true, message: "Download started" });
   }
 
+  if (req.url === "/api/llm/download-model" && req.method === "POST") {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    const url = String(body.url || "");
+    if (!url) return json(res, 400, { ok: false, error: "URL is required" });
+    if (downloadState.active) return json(res, 409, { ok: false, error: "Another model download is already active." });
+    try {
+      const directUrl = url.includes("huggingface.co") ? url.replace("/blob/", "/resolve/") : url;
+      const filename = path.basename(new URL(directUrl).pathname);
+      if (!filename.toLowerCase().endsWith(".gguf")) {
+        return json(res, 400, { ok: false, error: "Text model URL must point to a .gguf file." });
+      }
+      startModelDownload(directUrl, filename, LLM_MODELS, "text");
+      return json(res, 200, { ok: true, message: "Text model download started", filename });
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message || String(err) });
+    }
+  }
+
   if (req.url === "/api/download-openvino-model" && req.method === "POST") {
     const body = await readJsonBody(req, res);
     if (!body) return;
@@ -2598,6 +2878,37 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (req.url.startsWith("/api/llm/import-model") && req.method === "POST") {
+    try {
+      const parsed = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+      const result = await streamModelUpload(req, parsed.searchParams.get("filename"), LLM_MODELS, true);
+      return json(res, 200, { ok: true, message: `Imported ${result.filename}`, model: result });
+    } catch (err) {
+      console.error("  [api] Failed to import text model:", err);
+      return json(res, 500, { ok: false, error: err.message });
+    }
+  }
+
+  if (req.url === "/api/llm/delete-model" && req.method === "POST") {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    const filename = path.basename(String(body.filename || ""));
+    const modelPath = path.join(LLM_MODELS, filename);
+    if (!filename || !pathInside(modelPath, LLM_MODELS)) {
+      return json(res, 400, { ok: false, error: "Invalid filename" });
+    }
+    if (llmSettings.model === filename && llmProc) await killLlm();
+    try {
+      fs.unlinkSync(modelPath);
+      return json(res, 200, { ok: true });
+    } catch (err) {
+      return json(res, err.code === "ENOENT" ? 404 : 500, {
+        ok: false,
+        error: err.code === "ENOENT" ? "Text model not found" : err.message,
+      });
+    }
+  }
+
   // POST /api/delete-model
   if (req.url === "/api/delete-model" && req.method === "POST") {
     const body = await readJsonBody(req, res);
@@ -2655,7 +2966,8 @@ server.listen(PORT_FRONTEND, "0.0.0.0", () => {
   console.log("   LOCAL AI IMAGE GENERATOR  |  Running");
   console.log("   Server Build: " + SERVER_BUILD);
   console.log("   Frontend : http://localhost:" + PORT_FRONTEND);
-  console.log("   Backend  : http://127.0.0.1:" + PORT_BACKEND);
+  console.log("   Image API: http://127.0.0.1:" + PORT_BACKEND);
+  console.log("   Text API : starts on http://127.0.0.1:" + PREFERRED_LLM_PORT);
   console.log("  ============================================================");
   console.log("");
 
@@ -2664,5 +2976,5 @@ server.listen(PORT_FRONTEND, "0.0.0.0", () => {
 });
 
 // Graceful shutdown
-process.on("SIGINT",  async () => { await killBackend(); process.exit(0); });
-process.on("SIGTERM", async () => { await killBackend(); process.exit(0); });
+process.on("SIGINT",  async () => { await killBackend(); await killOpenVinoWorker(); await killLlm(); process.exit(0); });
+process.on("SIGTERM", async () => { await killBackend(); await killOpenVinoWorker(); await killLlm(); process.exit(0); });

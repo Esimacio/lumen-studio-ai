@@ -9,7 +9,7 @@ export const isTauri = () => {
 // Cached hardware specs
 let cachedSpecs = null;
 let cachedBackendPort = null;
-export const EXPECTED_SERVER_BUILD = "polish-setup-v1";
+export const EXPECTED_SERVER_BUILD = "text-image-v1";
 
 const isLocalServerMode = () => {
   return typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
@@ -79,7 +79,8 @@ async function readJsonResponse(res, fallbackMessage = "The local server returne
 export async function getHealth() {
   try {
     const res = await fetch("/api/health");
-    const data = await readJsonResponse(res, "The local server returned an invalid health response.");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Health request failed (HTTP ${res.status})`);
     return {
       ...data,
       stale: data.build !== EXPECTED_SERVER_BUILD,
@@ -303,6 +304,78 @@ export async function getBackendStatus() {
   } catch (_) {
     return { ready: false, settings: {} };
   }
+}
+
+export async function getLlmStatus() {
+  try {
+    const res = await fetch("/api/llm/status");
+    return await readJsonResponse(res, "The local server returned invalid text backend status.");
+  } catch (err) {
+    return { ready: false, running: false, backendInstalled: false, error: err.message, settings: {} };
+  }
+}
+
+export async function listLlmModels() {
+  const res = await fetch("/api/llm/models");
+  const data = await readJsonResponse(res, "The local server returned invalid text model data.");
+  return (data.models || []).map(normalizeModel);
+}
+
+export async function startLlm(model, options = {}) {
+  const res = await fetch("/api/llm/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      threads: options.threads,
+      contextSize: options.contextSize,
+      gpuLayers: options.gpuLayers,
+    }),
+  });
+  return await readJsonResponse(res, "The local server returned an invalid text backend response.");
+}
+
+export async function stopLlm() {
+  const res = await fetch("/api/llm/stop", { method: "POST" });
+  return await readJsonResponse(res, "The local server returned an invalid text backend response.");
+}
+
+export async function chatWithLlm(messages, options = {}) {
+  const res = await fetch("/api/llm/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages,
+      temperature: options.temperature,
+      max_tokens: options.maxTokens,
+    }),
+  });
+  const data = await readJsonResponse(res, "The local text model returned an invalid response.");
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("The text model returned an empty response.");
+  return content;
+}
+
+export async function downloadLlmModel(url) {
+  const res = await fetch("/api/llm/download-model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  return await readJsonResponse(res, "The local server returned an invalid text download response.");
+}
+
+export async function importLlmModel(file, onProgress, signal) {
+  return await uploadModelFileToEndpoint(file, "/api/llm/import-model", onProgress, signal);
+}
+
+export async function deleteLlmModel(filename) {
+  const res = await fetch("/api/llm/delete-model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename }),
+  });
+  return await readJsonResponse(res, "The local server returned an invalid text model delete response.");
 }
 
 export async function listGeneratedOutputs() {
@@ -587,12 +660,16 @@ export async function importModelFile(sourcePath, onProgress, signal) {
 }
 
 function uploadModelFile(file, onProgress, signal) {
+  return uploadModelFileToEndpoint(file, "/api/import-model", onProgress, signal);
+}
+
+function uploadModelFileToEndpoint(file, endpoint, onProgress, signal) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const startedAt = Date.now();
     let abortedByUser = false;
 
-    xhr.open("POST", `/api/import-model?filename=${encodeURIComponent(file.name)}`);
+    xhr.open("POST", `${endpoint}?filename=${encodeURIComponent(file.name)}`);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
 
     const abortUpload = () => {
