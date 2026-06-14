@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, LoaderCircle, Send, Trash2, Square } from "lucide-react";
+import { Bot, LoaderCircle, Send, Trash2, Square, History, Plus } from "lucide-react";
 import {
   chatWithLlm,
   getDownloadProgress,
@@ -17,6 +17,9 @@ function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings
   const [input, setInput] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [loadingModel, setLoadingModel] = useState(null);
+  const [conversations, setConversations] = useState([]);
+  const [activeConversationId, setActiveConversationId] = useState(null);
+  const [showHistory, setShowHistory] = useState(true);
   const [tokenUsage, setTokenUsage] = useState({
     prompt_tokens: 0,
     completion_tokens: 0,
@@ -30,6 +33,16 @@ function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings
   useEffect(() => {
     loadingModelRef.current = loadingModel;
   }, [loadingModel]);
+
+  // Load conversations on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("chat_conversations");
+    if (saved) {
+      try {
+        setConversations(JSON.parse(saved));
+      } catch (_) {}
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     const [nextModels, nextStatus] = await Promise.all([listLlmModels(), getLlmStatus()]);
@@ -126,13 +139,89 @@ function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings
     setSelectedModel("");
   };
 
+  const saveConversationState = (id, msgs, modelName, newTitle = null) => {
+    const saved = localStorage.getItem("chat_conversations");
+    let list = [];
+    if (saved) {
+      try {
+        list = JSON.parse(saved);
+      } catch (_) {}
+    }
+    const idx = list.findIndex(c => c.id === id);
+    if (idx !== -1) {
+      list[idx].messages = msgs;
+      list[idx].timestamp = Date.now();
+      list[idx].model = modelName;
+      if (newTitle) list[idx].title = newTitle;
+    } else {
+      list.unshift({
+        id,
+        title: newTitle || "Chat Session",
+        model: modelName,
+        messages: msgs,
+        timestamp: Date.now()
+      });
+    }
+    localStorage.setItem("chat_conversations", JSON.stringify(list));
+    setConversations(list);
+  };
+
+  const handleNewChat = () => {
+    setActiveConversationId(null);
+    setMessages([]);
+    setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+  };
+
+  const handleSelectConversation = (conv) => {
+    setActiveConversationId(conv.id);
+    setMessages(conv.messages);
+    if (conv.model && models.some(m => m.filename === conv.model)) {
+      setSelectedModel(conv.model);
+    }
+    // Try to compute approximate token usage from messages
+    const total = conv.messages.reduce((sum, m) => sum + m.content.split(/\s+/).length, 0);
+    setTokenUsage({
+      prompt_tokens: Math.round(total * 0.7),
+      completion_tokens: Math.round(total * 0.3),
+      total_tokens: total
+    });
+  };
+
+  const handleDeleteConversation = (id, e) => {
+    e.stopPropagation();
+    const saved = localStorage.getItem("chat_conversations");
+    if (!saved) return;
+    try {
+      const list = JSON.parse(saved);
+      const filtered = list.filter(c => c.id !== id);
+      localStorage.setItem("chat_conversations", JSON.stringify(filtered));
+      setConversations(filtered);
+      if (activeConversationId === id) {
+        handleNewChat();
+      }
+    } catch (_) {}
+  };
+
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || isBusy || !status.ready) return;
+
+    let convId = activeConversationId;
+    let isNew = false;
+    if (!convId) {
+      convId = "chat_" + Date.now();
+      setActiveConversationId(convId);
+      isNew = true;
+    }
+
     const nextMessages = [...messages, { role: "user", content: text }];
     setMessages(nextMessages);
     setInput("");
     setIsBusy(true);
+
+    const firstTitle = isNew ? (text.slice(0, 26) + (text.length > 26 ? "..." : "")) : null;
+    saveConversationState(convId, nextMessages, selectedModel, firstTitle);
+
     try {
       const systemPrompt = textSettings?.systemPrompt || "You are a helpful local AI assistant.";
       const requestMessages = [
@@ -143,12 +232,16 @@ function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings
         temperature: textSettings?.temperature || 0.7, 
         maxTokens: 768 
       });
-      setMessages([...nextMessages, { role: "assistant", content: response.content }]);
+      const finalMessages = [...nextMessages, { role: "assistant", content: response.content }];
+      setMessages(finalMessages);
       if (response.usage) {
         setTokenUsage(response.usage);
       }
+      saveConversationState(convId, finalMessages, selectedModel);
     } catch (err) {
-      setMessages([...nextMessages, { role: "assistant", content: `Error: ${err.message}`, error: true }]);
+      const finalMessages = [...nextMessages, { role: "assistant", content: `Error: ${err.message}`, error: true }];
+      setMessages(finalMessages);
+      saveConversationState(convId, finalMessages, selectedModel);
     } finally {
       setIsBusy(false);
     }
@@ -157,13 +250,102 @@ function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings
   const handleClearChat = () => {
     setMessages([]);
     setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+    if (activeConversationId) {
+      saveConversationState(activeConversationId, [], selectedModel);
+    }
   };
 
   return (
-    <div className="text-chat-layout">
-      <section className="text-chat-main">
+    <div className="text-chat-layout" style={{ display: "flex", gap: "16px", padding: "20px", height: "100%", width: "100%", boxSizing: "border-box", overflow: "hidden" }}>
+      {/* Collapsible Chat History Sidebar */}
+      {showHistory && (
+        <aside className="chat-history-sidebar">
+          <button
+            className="m3-btn m3-btn-tonal"
+            onClick={handleNewChat}
+            style={{
+              width: "100%",
+              height: "40px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              fontSize: "0.85rem",
+              fontWeight: "600",
+              borderRadius: "var(--md-shape-corner-medium)",
+              cursor: "pointer",
+              border: "1px solid var(--border-color)"
+            }}
+          >
+            <Plus size={16} />
+            <span>New Chat</span>
+          </button>
+          
+          <div className="history-items-list">
+            {conversations.length === 0 ? (
+              <div style={{ padding: "20px 10px", textAlign: "center", fontSize: "0.8rem", color: "var(--md-sys-color-outline)", opacity: 0.8 }}>
+                No saved chats
+              </div>
+            ) : (
+              conversations.map((conv) => {
+                const isActive = activeConversationId === conv.id;
+                const formattedDate = new Date(conv.timestamp).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit"
+                });
+                return (
+                  <div
+                    key={conv.id}
+                    className={`history-item ${isActive ? "active" : ""}`}
+                    onClick={() => handleSelectConversation(conv)}
+                  >
+                    <div className="history-item-info">
+                      <span className="history-item-title">{conv.title}</span>
+                      <span className="history-item-meta">{formattedDate} • {conv.model?.split(/[\\/]/).pop() || "GGUF"}</span>
+                    </div>
+                    <button
+                      className="history-item-delete"
+                      onClick={(e) => handleDeleteConversation(conv.id, e)}
+                      title="Delete Conversation"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </aside>
+      )}
+
+      <section className="text-chat-main" style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column" }}>
         <div className="text-chat-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            {/* Toggle History Sidebar button */}
+            <button
+              onClick={() => setShowHistory(!showHistory)}
+              className="m3-btn m3-btn-tonal"
+              style={{
+                height: "38px",
+                width: "38px",
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "var(--md-shape-corner-medium)",
+                cursor: "pointer",
+                background: showHistory ? "var(--md-sys-color-primary-container)" : "var(--md-sys-color-surface-variant)",
+                color: showHistory ? "var(--md-sys-color-on-primary-container)" : "var(--md-sys-color-on-surface)",
+                border: "1px solid var(--border-color)",
+                flexShrink: 0
+              }}
+              title="Toggle Chat History"
+            >
+              <History size={18} />
+            </button>
+
             <select
               value={selectedModel}
               onChange={(e) => handleModelChange(e.target.value)}
@@ -215,26 +397,6 @@ function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-            {/* Active Backend status info */}
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ 
-                display: "inline-block", 
-                width: "8px", 
-                height: "8px", 
-                borderRadius: "50%", 
-                background: status.ready ? "var(--md-sys-color-success)" : "var(--md-sys-color-outline-variant)",
-                flexShrink: 0
-              }}></span>
-              <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
-                <span style={{ fontSize: "0.68rem", color: "var(--md-sys-color-outline)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  Active Backend
-                </span>
-                <span style={{ fontSize: "0.85rem", fontWeight: "700", color: status.ready ? "var(--md-sys-color-on-surface)" : "var(--md-sys-color-outline)" }}>
-                  {status.ready ? (status.settings?.backendMode || "llama.cpp") : "Offline"}
-                  {status.ready && ` (${status.settings?.threads || 4}T)`}
-                </span>
-              </div>
-            </div>
 
             {/* Small circular gauge for context */}
             {(() => {
