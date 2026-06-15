@@ -9,6 +9,7 @@ set DIST=%APP%\dist\index.html
 set SETUP=%~dp0scripts\setup.ps1
 set CUDA_BACKEND=%APP%\backend\win\cuda\sd-cuda.exe
 set VULKAN_BACKEND=%APP%\backend\win\vulkan\sd-vulkan.exe
+set LLM_CUDA_BACKEND=%APP%\llm-backend\win\cuda\llama-server.exe
 set LLM_VULKAN_BACKEND=%APP%\llm-backend\win\vulkan\llama-server.exe
 set LLM_CPU_BACKEND=%APP%\llm-backend\win\cpu\llama-server.exe
 set SERVE=%~dp0scripts\serve.cjs
@@ -30,7 +31,7 @@ if not exist "%DIST%" (
     set SETUP_REASON=Frontend build is missing.
     goto :run_setup
 )
-if not exist "%LLM_VULKAN_BACKEND%" if not exist "%LLM_CPU_BACKEND%" (
+if not exist "%LLM_CUDA_BACKEND%" if not exist "%LLM_VULKAN_BACKEND%" if not exist "%LLM_CPU_BACKEND%" (
     set SETUP_REASON=llama.cpp text backend is missing.
     goto :run_setup
 )

@@ -78,8 +78,10 @@ if (!fs.existsSync(LLM_MODELS)) {
   fs.mkdirSync(LLM_MODELS, { recursive: true });
 }
 const LLM_BACKEND_PATHS = {
+  winCuda: path.join(ROOT, "app", "llm-backend", "win", "cuda", "llama-server.exe"),
   winVulkan: path.join(ROOT, "app", "llm-backend", "win", "vulkan", "llama-server.exe"),
   winCpu: path.join(ROOT, "app", "llm-backend", "win", "cpu", "llama-server.exe"),
+  linuxCuda: path.join(ROOT, "app", "llm-backend", "linux", "cuda", "llama-server"),
   linuxVulkan: path.join(ROOT, "app", "llm-backend", "linux", "vulkan", "llama-server"),
   linuxCpu: path.join(ROOT, "app", "llm-backend", "linux", "cpu", "llama-server"),
   macArm64: path.join(ROOT, "app", "llm-backend", "mac", "arm64", "llama-server"),
@@ -220,7 +222,50 @@ function detectLinuxGpuFromSysfs() {
   return null;
 }
 
+let cachedLlamaCudaGpu = null;
+let cachedLlamaCudaGpuChecked = false;
+function detectLlamaCudaGpu() {
+  if (cachedLlamaCudaGpuChecked) return cachedLlamaCudaGpu;
+  cachedLlamaCudaGpuChecked = true;
+
+  const backendPath = osPlatform === "win32"
+    ? LLM_BACKEND_PATHS.winCuda
+    : osPlatform === "linux"
+      ? LLM_BACKEND_PATHS.linuxCuda
+      : "";
+  if (!backendPath || !fs.existsSync(backendPath)) return null;
+
+  try {
+    const result = spawnSync(backendPath, ["--list-devices"], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 10000,
+      maxBuffer: 1024 * 1024,
+    });
+    const output = `${result.stdout || ""}\n${result.stderr || ""}`;
+    const devices = [];
+    const devicePattern = /CUDA\d+\s*:\s*(.+?)\s+\(([\d.]+)\s+MiB(?:,\s*([\d.]+)\s+MiB free)?\)/gi;
+    let match;
+    while ((match = devicePattern.exec(output)) !== null) {
+      devices.push({
+        name: match[1].trim(),
+        vram_gb: Math.round((Number(match[2]) / 1024) * 100) / 100,
+        free_vram_gb: match[3] ? Math.round((Number(match[3]) / 1024) * 100) / 100 : null,
+      });
+    }
+    cachedLlamaCudaGpu = devices.sort((a, b) => b.vram_gb - a.vram_gb)[0] || null;
+  } catch (_) {
+    cachedLlamaCudaGpu = null;
+  }
+  return cachedLlamaCudaGpu;
+}
+
+let cachedLlamaVulkanGpu = null;
+let cachedLlamaVulkanGpuChecked = false;
 function detectLlamaVulkanGpu() {
+  if (cachedLlamaVulkanGpuChecked) return cachedLlamaVulkanGpu;
+  cachedLlamaVulkanGpuChecked = true;
+
   const backendPath = osPlatform === "win32"
     ? LLM_BACKEND_PATHS.winVulkan
     : osPlatform === "linux"
@@ -246,16 +291,23 @@ function detectLlamaVulkanGpu() {
         free_vram_gb: match[3] ? Math.round((Number(match[3]) / 1024) * 100) / 100 : null,
       });
     }
-    return devices.sort((a, b) => b.vram_gb - a.vram_gb)[0] || null;
+    cachedLlamaVulkanGpu = devices.sort((a, b) => b.vram_gb - a.vram_gb)[0] || null;
   } catch (_) {
-    return null;
+    cachedLlamaVulkanGpu = null;
   }
+  return cachedLlamaVulkanGpu;
 }
 
 function getGpuInfo() {
   if (cachedGpuInfo) return cachedGpuInfo;
 
-  if (osPlatform === "win32") {
+  if (osPlatform === "win32" || osPlatform === "linux") {
+    const llamaCudaGpu = detectLlamaCudaGpu();
+    if (llamaCudaGpu) {
+      cachedGpuInfo = llamaCudaGpu;
+      return cachedGpuInfo;
+    }
+
     const llamaVulkanGpu = detectLlamaVulkanGpu();
     if (llamaVulkanGpu) {
       cachedGpuInfo = llamaVulkanGpu;
@@ -912,22 +964,40 @@ async function findAvailableLlmPort() {
 }
 
 function getLlmBackend() {
-  const candidates = osPlatform === "win32"
-    ? [
-        { path: LLM_BACKEND_PATHS.winVulkan, mode: "Auto (Vulkan/CPU)" },
-        { path: LLM_BACKEND_PATHS.winCpu, mode: "CPU" },
-      ]
-    : osPlatform === "darwin"
-      ? [{
-          path: process.arch === "arm64" ? LLM_BACKEND_PATHS.macArm64 : LLM_BACKEND_PATHS.macX64,
-          mode: process.arch === "arm64" ? "Metal GPU" : "CPU",
-        }]
-      : [
-          { path: LLM_BACKEND_PATHS.linuxVulkan, mode: "Auto (Vulkan/CPU)" },
-          { path: LLM_BACKEND_PATHS.linuxCpu, mode: "CPU" },
-        ];
-
-  return candidates.find((candidate) => fs.existsSync(candidate.path)) || null;
+  if (osPlatform === "win32") {
+    if (fs.existsSync(LLM_BACKEND_PATHS.winCuda) && detectLlamaCudaGpu()) {
+      return { path: LLM_BACKEND_PATHS.winCuda, mode: "Auto (CUDA/CPU)" };
+    }
+    if (fs.existsSync(LLM_BACKEND_PATHS.winVulkan) && detectLlamaVulkanGpu()) {
+      return { path: LLM_BACKEND_PATHS.winVulkan, mode: "Auto (Vulkan/CPU)" };
+    }
+    if (fs.existsSync(LLM_BACKEND_PATHS.winCuda)) {
+      return { path: LLM_BACKEND_PATHS.winCuda, mode: "Auto (CUDA/CPU)" };
+    }
+    if (fs.existsSync(LLM_BACKEND_PATHS.winVulkan)) {
+      return { path: LLM_BACKEND_PATHS.winVulkan, mode: "Auto (Vulkan/CPU)" };
+    }
+    return { path: LLM_BACKEND_PATHS.winCpu, mode: "CPU" };
+  } else if (osPlatform === "darwin") {
+    return {
+      path: process.arch === "arm64" ? LLM_BACKEND_PATHS.macArm64 : LLM_BACKEND_PATHS.macX64,
+      mode: process.arch === "arm64" ? "Metal GPU" : "CPU",
+    };
+  } else {
+    if (fs.existsSync(LLM_BACKEND_PATHS.linuxCuda) && detectLlamaCudaGpu()) {
+      return { path: LLM_BACKEND_PATHS.linuxCuda, mode: "Auto (CUDA/CPU)" };
+    }
+    if (fs.existsSync(LLM_BACKEND_PATHS.linuxVulkan) && detectLlamaVulkanGpu()) {
+      return { path: LLM_BACKEND_PATHS.linuxVulkan, mode: "Auto (Vulkan/CPU)" };
+    }
+    if (fs.existsSync(LLM_BACKEND_PATHS.linuxCuda)) {
+      return { path: LLM_BACKEND_PATHS.linuxCuda, mode: "Auto (CUDA/CPU)" };
+    }
+    if (fs.existsSync(LLM_BACKEND_PATHS.linuxVulkan)) {
+      return { path: LLM_BACKEND_PATHS.linuxVulkan, mode: "Auto (Vulkan/CPU)" };
+    }
+    return { path: LLM_BACKEND_PATHS.linuxCpu, mode: "CPU" };
+  }
 }
 
 function getLlmModels() {
@@ -2007,6 +2077,56 @@ function killBackend() {
   });
 }
 
+function chooseAutoContext(modelFilename, isGpu) {
+  let modelSizeGb = 4;
+  try {
+    const modelPath = path.join(LLM_MODELS, modelFilename);
+    if (fs.existsSync(modelPath)) {
+      const stats = fs.statSync(modelPath);
+      modelSizeGb = stats.size / (1024 * 1024 * 1024);
+    }
+  } catch (_) {}
+
+  const systemRamGb = os.totalmem() / (1024 * 1024 * 1024);
+  let vramGb = 0;
+  try {
+    const gpu = getGpuInfo();
+    if (gpu && gpu.vram_gb) {
+      vramGb = gpu.vram_gb;
+    }
+  } catch (_) {}
+
+  let availableGb = 0;
+  let bufferGb = 2.0;
+
+  if (isGpu && vramGb > 0) {
+    availableGb = vramGb;
+    bufferGb = 1.5;
+  } else {
+    availableGb = systemRamGb;
+    bufferGb = 2.5;
+  }
+
+  const usableGb = Math.max(0.5, availableGb - modelSizeGb - bufferGb);
+
+  let kvPer4096Gb = 0.55;
+  if (modelSizeGb >= 5.5) {
+    kvPer4096Gb = 1.05;
+  } else if (modelSizeGb >= 4.0) {
+    kvPer4096Gb = 0.85;
+  }
+
+  const estimatedMaxCtx = (usableGb / kvPer4096Gb) * 4096;
+  const contextLadder = [32768, 24576, 16384, 12288, 8192, 4096, 2048];
+  
+  for (const limit of contextLadder) {
+    if (limit <= estimatedMaxCtx) {
+      return limit;
+    }
+  }
+  return 2048;
+}
+
 async function startLlm(settings = {}) {
   const filename = path.basename(String(settings.model || ""));
   const modelPath = path.join(LLM_MODELS, filename);
@@ -2027,11 +2147,21 @@ async function startLlm(settings = {}) {
   await killLlm();
   PORT_LLM = await findAvailableLlmPort();
   llmError = null;
+
+  let contextSize = Number(settings.contextSize);
+  if (!contextSize || contextSize <= 0) {
+    const isGpu = backend.mode.includes("GPU") || backend.mode.includes("CUDA") || backend.mode.includes("Vulkan") || backend.mode.includes("Metal") || backend.mode.startsWith("Auto");
+    contextSize = chooseAutoContext(filename, isGpu);
+    console.log(`  [llm] Auto-selected context size: ${contextSize} tokens based on memory limits.`);
+  } else {
+    contextSize = Math.max(512, Math.min(32768, contextSize));
+  }
+
   llmSettings = {
     ...llmSettings,
     model: filename,
     threads: Math.max(1, Math.min(64, Number(settings.threads) || llmSettings.threads)),
-    contextSize: Math.max(512, Math.min(32768, Number(settings.contextSize) || 4096)),
+    contextSize: contextSize,
     gpuLayers: Number.isFinite(Number(settings.gpuLayers)) ? Number(settings.gpuLayers) : -1,
     backendMode: backend.mode,
     backendBinary: path.basename(backend.path),
@@ -2093,6 +2223,7 @@ async function startLlm(settings = {}) {
     const output = data.toString();
     process.stderr.write("  [llm-err] " + output);
     if (/Vulkan\d+\s*:/i.test(output)) llmSettings.backendMode = "Vulkan GPU";
+    else if (/CUDA\d+\s*:/i.test(output)) llmSettings.backendMode = "CUDA GPU";
     else if (/Metal/i.test(output) && /GPU|device/i.test(output)) llmSettings.backendMode = "Metal GPU";
     else if (/\-\s+CPU\s+:/i.test(output) && llmSettings.backendMode.startsWith("Auto")) llmSettings.backendMode = "CPU";
     if (/error|failed/i.test(output) && !/no error/i.test(output)) {
@@ -3225,79 +3356,145 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true });
   }
 
+function isOomError(msg) {
+  if (!msg) return false;
+  const lower = String(msg).toLowerCase();
+  return lower.includes("out of memory") ||
+         lower.includes("failed to allocate") ||
+         lower.includes("failed to initialize the context") ||
+         lower.includes("oom") ||
+         lower.includes("not enough memory") ||
+         lower.includes("allocation failed") ||
+         lower.includes("failed to create context");
+}
+
+async function retryLowerContext() {
+  const currentCtx = llmSettings.contextSize || 4096;
+  const contextLadder = [32768, 24576, 16384, 12288, 8192, 4096, 2048, 1024, 512];
+  const nextLimit = contextLadder.find(limit => limit < currentCtx);
+  if (!nextLimit) {
+    throw new Error("Cannot lower context size any further.");
+  }
+  console.log(`  [llm] Retrying with lower context limit: ${nextLimit} (was ${currentCtx})`);
+  
+  const originalModel = llmSettings.model;
+  const newSettings = {
+    model: originalModel,
+    threads: llmSettings.threads,
+    contextSize: nextLimit,
+    gpuLayers: llmSettings.gpuLayers,
+  };
+  
+  await startLlm(newSettings);
+}
+
+async function doLlmChat(req, res, body, retryCount = 0) {
+  try {
+    const isStream = body.stream === true;
+    const requestData = JSON.stringify({
+      model: llmSettings.model || "local-model",
+      messages: Array.isArray(body.messages) ? body.messages : [],
+      temperature: Number.isFinite(Number(body.temperature)) ? Number(body.temperature) : 0.7,
+      max_tokens: Math.max(1, Math.min(4096, Number(body.max_tokens) || 512)),
+      stream: isStream,
+    });
+
+    if (isStream) {
+      const clientReq = http.request({
+        hostname: "127.0.0.1",
+        port: PORT_LLM,
+        path: "/v1/chat/completions",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(requestData),
+        }
+      }, (clientRes) => {
+        if (clientRes.statusCode < 200 || clientRes.statusCode >= 300) {
+          let errorBody = "";
+          clientRes.setEncoding("utf8");
+          clientRes.on("data", (chunk) => { errorBody += chunk; });
+          clientRes.on("end", async () => {
+            let message = `Text backend returned HTTP ${clientRes.statusCode}`;
+            try {
+              message = JSON.parse(errorBody || "{}").error?.message || message;
+            } catch (_) {}
+            
+            if (isOomError(message) && retryCount === 0) {
+              try {
+                await retryLowerContext();
+                return doLlmChat(req, res, body, retryCount + 1);
+              } catch (retryErr) {
+                console.error("Failed OOM recovery retry:", retryErr);
+              }
+            }
+            json(res, clientRes.statusCode || 500, { ok: false, error: message });
+          });
+          return;
+        }
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          "Connection": "keep-alive",
+          "X-Accel-Buffering": "no",
+        });
+        res.flushHeaders?.();
+        clientRes.on("data", (chunk) => res.write(chunk));
+        clientRes.on("end", () => res.end());
+        clientRes.on("error", (err) => res.destroy(err));
+      });
+
+      clientReq.on("error", async (err) => {
+        console.error("LLM stream request error:", err);
+        if (isOomError(err.message) && retryCount === 0) {
+          try {
+            await retryLowerContext();
+            return doLlmChat(req, res, body, retryCount + 1);
+          } catch (retryErr) {
+            console.error("Failed OOM recovery retry:", retryErr);
+          }
+        }
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        } else {
+          res.end();
+        }
+      });
+
+      clientReq.write(requestData);
+      clientReq.end();
+      res.on("close", () => {
+        if (!res.writableEnded && !clientReq.destroyed) clientReq.destroy();
+      });
+      return;
+    } else {
+      try {
+        const result = await requestJson(`http://127.0.0.1:${PORT_LLM}/v1/chat/completions`, JSON.parse(requestData), 300000);
+        return json(res, 200, result);
+      } catch (err) {
+        if (isOomError(err.message) && retryCount === 0) {
+          try {
+            await retryLowerContext();
+            return doLlmChat(req, res, body, retryCount + 1);
+          } catch (retryErr) {
+            console.error("Failed OOM recovery retry:", retryErr);
+          }
+        }
+        throw err;
+      }
+    }
+  } catch (err) {
+    return json(res, 500, { ok: false, error: err.message || String(err) });
+  }
+}
+
   if (req.url === "/api/llm/chat" && req.method === "POST") {
     const body = await readJsonBody(req, res);
     if (!body) return;
     if (!llmReady) return json(res, 409, { ok: false, error: "Load a text model before sending a message." });
-    try {
-      const isStream = body.stream === true;
-      const requestData = JSON.stringify({
-        model: llmSettings.model || "local-model",
-        messages: Array.isArray(body.messages) ? body.messages : [],
-        temperature: Number.isFinite(Number(body.temperature)) ? Number(body.temperature) : 0.7,
-        max_tokens: Math.max(1, Math.min(4096, Number(body.max_tokens) || 512)),
-        stream: isStream,
-      });
-
-      if (isStream) {
-        const clientReq = http.request({
-          hostname: "127.0.0.1",
-          port: PORT_LLM,
-          path: "/v1/chat/completions",
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Content-Length": Buffer.byteLength(requestData),
-          }
-        }, (clientRes) => {
-          if (clientRes.statusCode < 200 || clientRes.statusCode >= 300) {
-            let errorBody = "";
-            clientRes.setEncoding("utf8");
-            clientRes.on("data", (chunk) => { errorBody += chunk; });
-            clientRes.on("end", () => {
-              let message = `Text backend returned HTTP ${clientRes.statusCode}`;
-              try {
-                message = JSON.parse(errorBody || "{}").error?.message || message;
-              } catch (_) {}
-              json(res, clientRes.statusCode || 500, { ok: false, error: message });
-            });
-            return;
-          }
-          res.writeHead(200, {
-            "Content-Type": "text/event-stream; charset=utf-8",
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-          });
-          res.flushHeaders?.();
-          clientRes.on("data", (chunk) => res.write(chunk));
-          clientRes.on("end", () => res.end());
-          clientRes.on("error", (err) => res.destroy(err));
-        });
-
-        clientReq.on("error", (err) => {
-          console.error("LLM stream request error:", err);
-          if (!res.headersSent) {
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ ok: false, error: err.message }));
-          } else {
-            res.end();
-          }
-        });
-
-        clientReq.write(requestData);
-        clientReq.end();
-        res.on("close", () => {
-          if (!res.writableEnded && !clientReq.destroyed) clientReq.destroy();
-        });
-        return;
-      } else {
-        const result = await requestJson(`http://127.0.0.1:${PORT_LLM}/v1/chat/completions`, JSON.parse(requestData), 300000);
-        return json(res, 200, result);
-      }
-    } catch (err) {
-      return json(res, 500, { ok: false, error: err.message || String(err) });
-    }
+    await doLlmChat(req, res, body);
+    return;
   }
 
   // GET /api/hardware-specs

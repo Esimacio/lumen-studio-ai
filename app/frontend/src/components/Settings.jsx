@@ -512,8 +512,9 @@ function Settings({
                   className="m3-input"
                   style={{ marginTop: "6px", height: "40px", cursor: "pointer" }}
                 >
+                  <option value="0">Auto-detect (Recommended)</option>
                   <option value="2048">2,048 tokens (Fast/Low Memory)</option>
-                  <option value="4096">4,096 tokens (Balanced / Recommended)</option>
+                  <option value="4096">4,096 tokens (Balanced)</option>
                   <option value="8192">8,192 tokens (More history)</option>
                   <option value="16384">16,384 tokens (Deep context)</option>
                 </select>

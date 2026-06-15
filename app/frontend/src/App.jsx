@@ -122,7 +122,7 @@ function App() {
       } catch (_) {}
     }
     return {
-      contextSize: 4096,
+      contextSize: 0,
       temperature: 0.7,
       systemPrompt: "You are a helpful local AI assistant.",
       threads: 4

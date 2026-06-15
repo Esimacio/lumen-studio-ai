@@ -30,37 +30,23 @@ function Format-Speed {
     return "{0:N0} KB/s" -f ($bps / 1KB)
 }
 
-function Install-LlamaArchive {
-    param([string]$Variant, [string]$AssetName)
-
-    $dest = Join-Path $llmRoot $Variant
-    $server = Join-Path $dest "llama-server.exe"
-    if (Test-Path $server) {
-        Write-Host "   OK  llama.cpp $Variant backend already ready."
-        return
-    }
-
-    $archive = Join-Path $toolsDir $AssetName
-    $extract = Join-Path $toolsDir "llama-$Variant-extract"
-    $url = "https://github.com/ggml-org/llama.cpp/releases/download/$Release/$AssetName"
-
-    New-Item -ItemType Directory -Force -Path $toolsDir, $dest | Out-Null
-    Remove-Item $archive, $extract -Recurse -Force -ErrorAction SilentlyContinue
-
-    Write-Host "   >>  Downloading llama.cpp $Variant backend ($Release)..."
+function Download-File {
+    param([string]$Url, [string]$DestPath, [string]$Label)
     
     $barWidth  = 48
     $lastBytes = [long]0
     $lastTime  = [DateTime]::Now
 
+    Write-Host "   >>  Downloading $Label..."
+
     try {
         Enable-Tls12
-        $req    = [System.Net.HttpWebRequest]::Create($url)
+        $req    = [System.Net.HttpWebRequest]::Create($Url)
         $req.UserAgent = "Mozilla/5.0"
         $resp   = $req.GetResponse()
         $total  = [long]$resp.ContentLength
         $stream = $resp.GetResponseStream()
-        $out    = [System.IO.File]::Create($archive)
+        $out    = [System.IO.File]::Create($DestPath)
         $buf    = New-Object byte[] 65536
         $done   = [long]0
 
@@ -100,6 +86,26 @@ function Install-LlamaArchive {
         Write-Host ""
         throw "Download failed: $_"
     }
+}
+
+function Install-LlamaArchive {
+    param([string]$Variant, [string]$AssetName)
+
+    $dest = Join-Path $llmRoot $Variant
+    $server = Join-Path $dest "llama-server.exe"
+    if (Test-Path $server) {
+        Write-Host "   OK  llama.cpp $Variant backend already ready."
+        return
+    }
+
+    $archive = Join-Path $toolsDir $AssetName
+    $extract = Join-Path $toolsDir "llama-$Variant-extract"
+    $url = "https://github.com/ggml-org/llama.cpp/releases/download/$Release/$AssetName"
+
+    New-Item -ItemType Directory -Force -Path $toolsDir, $dest | Out-Null
+    Remove-Item $archive, $extract -Recurse -Force -ErrorAction SilentlyContinue
+
+    Download-File -Url $url -DestPath $archive -Label "llama.cpp $Variant backend ($Release)"
 
     Write-Host "   >>  Extracting llama.cpp $Variant backend..."
     Expand-Archive -Path $archive -DestinationPath $extract -Force
@@ -109,11 +115,49 @@ function Install-LlamaArchive {
     }
     Remove-Item $archive, $extract -Recurse -Force -ErrorAction SilentlyContinue
 
+    if ($Variant -eq "cuda") {
+        $cudartAsset = "cudart-llama-bin-win-cuda-12.4-x64.zip"
+        $cudartArchive = Join-Path $toolsDir $cudartAsset
+        $cudartExtract = Join-Path $toolsDir "llama-cudart-extract"
+        $cudartUrl = "https://github.com/ggml-org/llama.cpp/releases/download/$Release/$cudartAsset"
+
+        Remove-Item $cudartArchive, $cudartExtract -Recurse -Force -ErrorAction SilentlyContinue
+
+        Download-File -Url $cudartUrl -DestPath $cudartArchive -Label "llama.cpp CUDA runtime library ($Release)"
+
+        Write-Host "   >>  Extracting CUDA runtime libraries..."
+        Expand-Archive -Path $cudartArchive -DestinationPath $cudartExtract -Force
+
+        Get-ChildItem $cudartExtract -Recurse -File | ForEach-Object {
+            Copy-Item $_.FullName (Join-Path $dest $_.Name) -Force
+        }
+        Remove-Item $cudartArchive, $cudartExtract -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     if (-not (Test-Path $server)) {
         throw "llama-server.exe was not found after extracting $AssetName"
     }
     Write-Host "   OK  llama.cpp $Variant backend installed."
 }
 
+$hasNvidia = $false
+try {
+    $gpus = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue
+    foreach ($gpu in $gpus) {
+        if ($gpu.Name -like "*NVIDIA*") {
+            $hasNvidia = $true
+        }
+    }
+} catch {}
+if (-not $hasNvidia) {
+    try {
+        & nvidia-smi *> $null
+        if ($LASTEXITCODE -eq 0) { $hasNvidia = $true }
+    } catch {}
+}
+
+if ($hasNvidia) {
+    Install-LlamaArchive -Variant "cuda" -AssetName "llama-$Release-bin-win-cuda-12.4-x64.zip"
+}
 Install-LlamaArchive -Variant "vulkan" -AssetName "llama-$Release-bin-win-vulkan-x64.zip"
 Install-LlamaArchive -Variant "cpu" -AssetName "llama-$Release-bin-win-cpu-x64.zip"
