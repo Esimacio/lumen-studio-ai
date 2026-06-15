@@ -127,6 +127,7 @@ let llmSettings = {
   gpuLayers: -1,
   backendMode: "",
   backendBinary: "",
+  supportsVision: false,
 };
 let backendLoadState = {
   active: false,
@@ -219,10 +220,48 @@ function detectLinuxGpuFromSysfs() {
   return null;
 }
 
+function detectLlamaVulkanGpu() {
+  const backendPath = osPlatform === "win32"
+    ? LLM_BACKEND_PATHS.winVulkan
+    : osPlatform === "linux"
+      ? LLM_BACKEND_PATHS.linuxVulkan
+      : "";
+  if (!backendPath || !fs.existsSync(backendPath)) return null;
+
+  try {
+    const result = spawnSync(backendPath, ["--list-devices"], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 10000,
+      maxBuffer: 1024 * 1024,
+    });
+    const output = `${result.stdout || ""}\n${result.stderr || ""}`;
+    const devices = [];
+    const devicePattern = /Vulkan\d+\s*:\s*(.+?)\s+\(([\d.]+)\s+MiB(?:,\s*([\d.]+)\s+MiB free)?\)/gi;
+    let match;
+    while ((match = devicePattern.exec(output)) !== null) {
+      devices.push({
+        name: match[1].trim(),
+        vram_gb: Math.round((Number(match[2]) / 1024) * 100) / 100,
+        free_vram_gb: match[3] ? Math.round((Number(match[3]) / 1024) * 100) / 100 : null,
+      });
+    }
+    return devices.sort((a, b) => b.vram_gb - a.vram_gb)[0] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function getGpuInfo() {
   if (cachedGpuInfo) return cachedGpuInfo;
 
   if (osPlatform === "win32") {
+    const llamaVulkanGpu = detectLlamaVulkanGpu();
+    if (llamaVulkanGpu) {
+      cachedGpuInfo = llamaVulkanGpu;
+      return cachedGpuInfo;
+    }
+
     try {
       const stdout = execSync(
         'powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | ForEach-Object { [PSCustomObject]@{ Name = $_.Name; VRAM = [math]::Round($_.AdapterRAM / 1GB, 2) } } | ConvertTo-Json"',
@@ -939,6 +978,7 @@ async function waitForLlmReady(maxAttempts = 240) {
 function killLlm() {
   return new Promise((resolve) => {
     llmReady = false;
+    llmSettings.supportsVision = false;
     if (!llmProc) {
       resolve();
       return;
@@ -1631,14 +1671,21 @@ function getTextModelFit(sizeBytes, specs = getHardwareSpecs()) {
   const fastGpuFit = vramBytes >= runtimeNeed;
   const cpuOrOffloadFit = usableRam >= runtimeNeed;
   const unifiedMemoryFit = isAppleSilicon && usableRam >= runtimeNeed;
+  const hybridFit = !fastGpuFit && vramBytes > 0 && cpuOrOffloadFit;
   const recommended = fastGpuFit || cpuOrOffloadFit || unifiedMemoryFit;
 
   if (recommended) {
-    const mode = fastGpuFit ? "GPU memory" : isAppleSilicon ? "unified memory" : "system RAM with CPU/GPU offload";
+    const mode = fastGpuFit
+      ? "GPU memory"
+      : isAppleSilicon
+        ? "unified memory"
+        : hybridFit
+          ? "combined GPU and system memory"
+          : "system RAM";
     return {
       recommended: true,
-      mode: fastGpuFit ? "gpu" : isAppleSilicon ? "unified" : "ram",
-      label: fastGpuFit ? "GPU Fit" : isAppleSilicon ? "Fits Unified Memory" : "Fits in RAM",
+      mode: fastGpuFit ? "gpu" : isAppleSilicon ? "unified" : hybridFit ? "hybrid" : "ram",
+      label: fastGpuFit ? "GPU Fit" : isAppleSilicon ? "Fits Unified Memory" : hybridFit ? "GPU + RAM Fit" : "Fits in RAM",
       reason: `${formatBytes(sizeBytes)} weights fit the estimated ${mode} budget with runtime headroom.`,
     };
   }
@@ -2029,6 +2076,8 @@ async function startLlm(settings = {}) {
   if (mmprojPath) {
     args.push("--mmproj", mmprojPath);
   }
+  llmSettings.supportsVision = Boolean(mmprojPath);
+  llmSettings.mmproj = mmprojPath ? path.basename(mmprojPath) : null;
   const spawnEnv = { ...process.env };
   const backendDir = path.dirname(backend.path);
   if (osPlatform === "linux") {

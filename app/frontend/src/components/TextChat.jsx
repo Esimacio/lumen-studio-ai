@@ -25,6 +25,12 @@ function TextChat({
   setShowHistory,
   saveConversationState
 }) {
+  const formatGenerationTime = (seconds) => {
+    const value = Number(seconds) || 0;
+    if (value < 1) return `${Math.round(value * 1000)} ms`;
+    return `${value.toFixed(value < 10 ? 2 : 1)} s`;
+  };
+
   const [models, setModels] = useState([]);
   const [status, setStatus] = useState({ ready: false, running: false, settings: {} });
   const [selectedModel, setSelectedModel] = useState("");
@@ -44,6 +50,7 @@ function TextChat({
 
   const [attachments, setAttachments] = useState([]);
   const fileInputRef = useRef(null);
+  const supportsVision = Boolean(status.ready && status.settings?.supportsVision);
 
   const isImage = (file) => {
     return /\.(jpe?g|png|webp)$/i.test(file.name) || file.type.startsWith("image/");
@@ -104,8 +111,15 @@ function TextChat({
     loadingModelRef.current = loadingModel;
   }, [loadingModel]);
 
+  useEffect(() => {
+    if (!supportsVision) {
+      setAttachments((current) => current.filter((attachment) => attachment.type !== "image"));
+    }
+  }, [supportsVision]);
+
   // Load conversation messages when activeConversationId changes
   useEffect(() => {
+    if (isBusy) return;
     if (activeConversationId) {
       const conv = conversations.find(c => c.id === activeConversationId);
       if (conv) {
@@ -129,7 +143,7 @@ function TextChat({
       setMessages([]);
       setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     }
-  }, [activeConversationId, conversations, models]);
+  }, [activeConversationId, conversations, models, isBusy]);
 
   const refresh = useCallback(async () => {
     const [nextModels, nextStatus] = await Promise.all([listLlmModels(), getLlmStatus()]);
@@ -279,7 +293,12 @@ function TextChat({
     const firstTitle = isNew ? (displayTitleText.slice(0, 26) + (displayTitleText.length > 26 ? "..." : "")) : null;
     saveConversationState(convId, nextMessages, selectedModel, firstTitle);
 
-    setMessages([...nextMessages, { role: "assistant", content: "" }]);
+    const requestStartedAt = performance.now();
+    setMessages([...nextMessages, {
+      role: "assistant",
+      content: "",
+      generationStats: { status: "starting", tokens: 0, tokensPerSecond: 0, seconds: 0 },
+    }]);
 
     try {
       const systemPrompt = textSettings?.systemPrompt || "You are a helpful local AI assistant.";
@@ -289,11 +308,15 @@ function TextChat({
       ];
 
       let assistantText = "";
+      let streamedTokens = 0;
 
       const response = await streamChatWithLlm(requestMessages, {
         temperature: textSettings?.temperature || 0.7,
         maxTokens: 768,
       }, (_token, fullText) => {
+        const now = performance.now();
+        streamedTokens += 1;
+        const generationSeconds = Math.max(0.05, (now - requestStartedAt) / 1000);
         assistantText = fullText;
         setMessages((prev) => {
           const updated = [...prev];
@@ -301,13 +324,37 @@ function TextChat({
             updated[updated.length - 1] = {
               ...updated[updated.length - 1],
               content: fullText,
+              generationStats: {
+                status: "streaming",
+                tokens: streamedTokens,
+                tokensPerSecond: streamedTokens / generationSeconds,
+                seconds: (now - requestStartedAt) / 1000,
+              },
             };
           }
           return updated;
         });
       });
 
-      const finalMessages = [...nextMessages, { role: "assistant", content: assistantText }];
+      const completedAt = performance.now();
+      const exactTokens = Number(response.timings?.predicted_n) || streamedTokens;
+      const backendTotalMs = Number(response.timings?.prompt_ms || 0) + Number(response.timings?.predicted_ms || 0);
+      const exactSeconds = backendTotalMs > 0
+        ? backendTotalMs / 1000
+        : (completedAt - requestStartedAt) / 1000;
+      const exactTokensPerSecond = Number(response.timings?.predicted_per_second)
+        || (exactTokens / Math.max(0.001, exactSeconds));
+      const generationStats = {
+        status: "complete",
+        tokens: exactTokens,
+        tokensPerSecond: exactTokensPerSecond,
+        seconds: exactSeconds,
+      };
+      const finalMessages = [...nextMessages, {
+        role: "assistant",
+        content: assistantText,
+        generationStats,
+      }];
       setMessages(finalMessages);
       saveConversationState(convId, finalMessages, selectedModel);
       if (response.usage) setTokenUsage(response.usage);
@@ -547,9 +594,23 @@ function TextChat({
                       <span style={{ whiteSpace: "pre-wrap" }}>{message.content}</span>
                     )}
                   </div>
+                  {message.role === "assistant" && message.generationStats && !message.error && (
+                    <div className={`chat-generation-stats ${message.generationStats.status}`}>
+                      {message.generationStats.status === "starting" ? (
+                        <>Waiting for first token...</>
+                      ) : message.generationStats.status === "streaming" ? (
+                        <>{message.generationStats.tokensPerSecond.toFixed(1)} tokens/sec</>
+                      ) : (
+                        <>
+                          {message.generationStats.tokens} tokens
+                          <span>•</span>
+                          {formatGenerationTime(message.generationStats.seconds)}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
-              {isBusy && status.ready && <div className="chat-thinking"><LoaderCircle className="progress-spinner" size={16} /> Generating...</div>}
             </>
           )}
           <div ref={bottomRef} />
@@ -620,8 +681,8 @@ function TextChat({
               className="m3-btn m3-btn-tonal" 
               onClick={() => fileInputRef.current?.click()} 
               style={{ padding: "0 12px", height: "48px", display: "flex", alignItems: "center", justifyContent: "center" }}
-              disabled={!status.ready || isBusy}
-              title="Attach files or images"
+              disabled={!supportsVision || isBusy}
+              title={supportsVision ? "Attach files or images" : "Image attachment requires a vision model with an mmproj file"}
             >
               <Paperclip size={17} />
             </button>

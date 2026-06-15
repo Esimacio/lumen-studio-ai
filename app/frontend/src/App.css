@@ -330,6 +330,23 @@ body {
   font-size: 0.78rem;
 }
 
+.chat-generation-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 22%, transparent);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.chat-generation-stats.complete {
+  color: var(--md-sys-color-primary);
+}
+
 .chat-thinking,
 .text-progress {
   display: flex;

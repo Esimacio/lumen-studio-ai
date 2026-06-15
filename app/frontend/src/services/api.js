@@ -398,6 +398,7 @@ export async function streamChatWithLlm(messages, options = {}, onToken = () => 
   let buffer = "";
   let content = "";
   let usage = null;
+  let timings = null;
 
   const consumeEvent = (eventText) => {
     const data = eventText
@@ -415,6 +416,7 @@ export async function streamChatWithLlm(messages, options = {}, onToken = () => 
       onToken(token, content);
     }
     if (parsed.usage) usage = parsed.usage;
+    if (parsed.timings) timings = parsed.timings;
     return false;
   };
 
@@ -436,7 +438,7 @@ export async function streamChatWithLlm(messages, options = {}, onToken = () => 
 
   if (!finished && buffer.trim()) consumeEvent(buffer);
   if (!content) throw new Error("The text model returned an empty streamed response.");
-  return { content, usage };
+  return { content, usage, timings };
 }
 
 export async function downloadLlmModel(url) {
