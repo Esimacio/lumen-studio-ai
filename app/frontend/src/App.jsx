@@ -133,6 +133,58 @@ function App() {
     localStorage.setItem("textSettings", JSON.stringify(textSettings));
   }, [textSettings]);
 
+  // Lifted Chat History States
+  const [conversations, setConversations] = useState([]);
+  const [activeConversationId, setActiveConversationId] = useState(null);
+  const [showHistory, setShowHistory] = useState(false); // Default hide
+
+  useEffect(() => {
+    const saved = localStorage.getItem("chat_conversations");
+    if (saved) {
+      try {
+        setConversations(JSON.parse(saved));
+      } catch (_) {}
+    }
+  }, []);
+
+  const saveConversationState = useCallback((id, msgs, modelName, newTitle = null) => {
+    setConversations((prev) => {
+      const list = [...prev];
+      const idx = list.findIndex(c => c.id === id);
+      if (idx !== -1) {
+        list[idx] = {
+          ...list[idx],
+          messages: msgs,
+          timestamp: Date.now(),
+          model: modelName,
+          ...(newTitle ? { title: newTitle } : {})
+        };
+      } else {
+        list.unshift({
+          id,
+          title: newTitle || "Chat Session",
+          model: modelName,
+          messages: msgs,
+          timestamp: Date.now()
+        });
+      }
+      localStorage.setItem("chat_conversations", JSON.stringify(list));
+      return list;
+    });
+  }, []);
+
+  const handleDeleteConversation = useCallback((id, e) => {
+    if (e) e.stopPropagation();
+    setConversations((prev) => {
+      const filtered = prev.filter((c) => c.id !== id);
+      localStorage.setItem("chat_conversations", JSON.stringify(filtered));
+      return filtered;
+    });
+    if (activeConversationId === id) {
+      setActiveConversationId(null);
+    }
+  }, [activeConversationId]);
+
   // Load hardware specifications on mount
   useEffect(() => {
     async function loadSpecs() {
@@ -371,8 +423,14 @@ function App() {
       activeTab={activeTab}
       setActiveTab={setActiveTab}
       specs={specs}
+      conversations={conversations}
+      activeConversationId={activeConversationId}
+      setActiveConversationId={setActiveConversationId}
+      showHistory={showHistory}
+      setShowHistory={setShowHistory}
+      onDeleteConversation={handleDeleteConversation}
     />
-  ), [activeTab, specs]);
+  ), [activeTab, specs, conversations, activeConversationId, showHistory, handleDeleteConversation]);
 
   const handleStopServer = useCallback(async () => {
     if (!serverRunning || isStoppingServer) return;
@@ -513,6 +571,13 @@ function App() {
             setTextSettings={setTextSettings}
             setActiveModel={setActiveModel}
             setServerRunning={setServerRunning}
+            conversations={conversations}
+            setConversations={setConversations}
+            activeConversationId={activeConversationId}
+            setActiveConversationId={setActiveConversationId}
+            showHistory={showHistory}
+            setShowHistory={setShowHistory}
+            saveConversationState={saveConversationState}
           />
         </div>
 

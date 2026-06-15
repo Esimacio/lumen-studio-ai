@@ -1,7 +1,17 @@
 import React, { memo } from "react";
-import { Image, FolderDown, MessageSquare, Settings, Shield, Terminal } from "lucide-react";
+import { Image, FolderDown, MessageSquare, Settings, Shield, Terminal, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 
-function Sidebar({ activeTab, setActiveTab, specs }) {
+function Sidebar({ 
+  activeTab, 
+  setActiveTab, 
+  specs,
+  conversations = [],
+  activeConversationId,
+  setActiveConversationId,
+  showHistory,
+  setShowHistory,
+  onDeleteConversation
+}) {
   return (
     <div className="sidebar">
       <div>
@@ -21,12 +31,121 @@ function Sidebar({ activeTab, setActiveTab, specs }) {
             <span>Image Generator</span>
           </div>
 
-          <div
-            className={`nav-item ${activeTab === "chat" ? "active" : ""}`}
-            onClick={() => setActiveTab("chat")}
-          >
-            <MessageSquare size={20} />
-            <span>Text Chat</span>
+          <div className="nav-item-wrapper" style={{ display: "flex", flexDirection: "column" }}>
+            <div
+              className={`nav-item ${activeTab === "chat" ? "active" : ""}`}
+              onClick={() => setActiveTab("chat")}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", boxSizing: "border-box" }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <MessageSquare size={20} />
+                <span>Text Chat</span>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowHistory(!showHistory);
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "inherit",
+                  cursor: "pointer",
+                  padding: "4px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "50%",
+                  transition: "background-color 0.2s"
+                }}
+                className="history-toggle-arrow"
+                title={showHistory ? "Hide Chat History" : "Show Chat History"}
+              >
+                {showHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </button>
+            </div>
+
+            {/* Sidebar Chat History List */}
+            {showHistory && (
+              <div 
+                className="sidebar-history-list" 
+                style={{ 
+                  paddingLeft: "14px", 
+                  marginTop: "6px", 
+                  marginBottom: "6px",
+                  display: "flex", 
+                  flexDirection: "column", 
+                  gap: "4px", 
+                  maxHeight: "220px", 
+                  overflowY: "auto",
+                  borderLeft: "2px solid var(--border-color)"
+                }}
+              >
+                {conversations.length === 0 ? (
+                  <div style={{ padding: "8px 12px", fontSize: "0.78rem", color: "var(--md-sys-color-outline)", opacity: 0.8 }}>
+                    No saved chats
+                  </div>
+                ) : (
+                  conversations.map((conv) => {
+                    const isActive = activeConversationId === conv.id;
+                    return (
+                      <div
+                        key={conv.id}
+                        onClick={() => {
+                          setActiveConversationId(conv.id);
+                          setActiveTab("chat");
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "6px 8px 6px 10px",
+                          borderRadius: "var(--md-shape-corner-small)",
+                          fontSize: "0.78rem",
+                          cursor: "pointer",
+                          background: isActive ? "var(--md-sys-color-secondary-container)" : "transparent",
+                          color: isActive ? "var(--md-sys-color-on-secondary-container)" : "var(--md-sys-color-on-surface-variant)",
+                          border: isActive ? "1px solid var(--md-sys-color-outline-variant)" : "1px solid transparent",
+                          transition: "background 0.2s"
+                        }}
+                        className="sidebar-history-item"
+                        title={conv.title}
+                      >
+                        <span style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          flex: 1,
+                          fontWeight: isActive ? 600 : 400
+                        }}>
+                          {conv.title}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteConversation(conv.id, e);
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "var(--md-sys-color-outline)",
+                            cursor: "pointer",
+                            padding: "2px",
+                            marginLeft: "6px",
+                            display: "flex",
+                            alignItems: "center"
+                          }}
+                          className="sidebar-history-delete"
+                          title="Delete Conversation"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
 
           <div

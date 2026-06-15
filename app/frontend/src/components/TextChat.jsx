@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, LoaderCircle, Send, Trash2, Square, History, Plus, Paperclip, X } from "lucide-react";
+import { Bot, LoaderCircle, Send, Trash2, Square, History, Paperclip, X } from "lucide-react";
 import {
   chatWithLlm,
   getDownloadProgress,
@@ -9,7 +9,22 @@ import {
   stopLlm,
 } from "../services/api";
 
-function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings, setActiveModel, setServerRunning }) {
+function TextChat({ 
+  specs, 
+  showAlert, 
+  showConfirm, 
+  textSettings, 
+  setTextSettings, 
+  setActiveModel, 
+  setServerRunning,
+  conversations,
+  setConversations,
+  activeConversationId,
+  setActiveConversationId,
+  showHistory,
+  setShowHistory,
+  saveConversationState
+}) {
   const [models, setModels] = useState([]);
   const [status, setStatus] = useState({ ready: false, running: false, settings: {} });
   const [selectedModel, setSelectedModel] = useState("");
@@ -17,9 +32,6 @@ function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings
   const [input, setInput] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [loadingModel, setLoadingModel] = useState(null);
-  const [conversations, setConversations] = useState([]);
-  const [activeConversationId, setActiveConversationId] = useState(null);
-  const [showHistory, setShowHistory] = useState(true);
   const [tokenUsage, setTokenUsage] = useState({
     prompt_tokens: 0,
     completion_tokens: 0,
@@ -92,15 +104,32 @@ function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings
     loadingModelRef.current = loadingModel;
   }, [loadingModel]);
 
-  // Load conversations on mount
+  // Load conversation messages when activeConversationId changes
   useEffect(() => {
-    const saved = localStorage.getItem("chat_conversations");
-    if (saved) {
-      try {
-        setConversations(JSON.parse(saved));
-      } catch (_) {}
+    if (activeConversationId) {
+      const conv = conversations.find(c => c.id === activeConversationId);
+      if (conv) {
+        setMessages(conv.messages);
+        if (conv.model && models.some(m => m.filename === conv.model)) {
+          setSelectedModel(conv.model);
+        }
+        const total = conv.messages.reduce((sum, m) => {
+          const text = Array.isArray(m.content)
+            ? m.content.map(c => c.text || "").join(" ")
+            : (m.content || "");
+          return sum + text.split(/\s+/).length;
+        }, 0);
+        setTokenUsage({
+          prompt_tokens: Math.round(total * 0.7),
+          completion_tokens: Math.round(total * 0.3),
+          total_tokens: total
+        });
+      }
+    } else {
+      setMessages([]);
+      setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
     }
-  }, []);
+  }, [activeConversationId, conversations, models]);
 
   const refresh = useCallback(async () => {
     const [nextModels, nextStatus] = await Promise.all([listLlmModels(), getLlmStatus()]);
@@ -197,72 +226,8 @@ function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings
     setSelectedModel("");
   };
 
-  const saveConversationState = (id, msgs, modelName, newTitle = null) => {
-    const saved = localStorage.getItem("chat_conversations");
-    let list = [];
-    if (saved) {
-      try {
-        list = JSON.parse(saved);
-      } catch (_) {}
-    }
-    const idx = list.findIndex(c => c.id === id);
-    if (idx !== -1) {
-      list[idx].messages = msgs;
-      list[idx].timestamp = Date.now();
-      list[idx].model = modelName;
-      if (newTitle) list[idx].title = newTitle;
-    } else {
-      list.unshift({
-        id,
-        title: newTitle || "Chat Session",
-        model: modelName,
-        messages: msgs,
-        timestamp: Date.now()
-      });
-    }
-    localStorage.setItem("chat_conversations", JSON.stringify(list));
-    setConversations(list);
-  };
-
   const handleNewChat = () => {
     setActiveConversationId(null);
-    setMessages([]);
-    setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
-  };
-
-  const handleSelectConversation = (conv) => {
-    setActiveConversationId(conv.id);
-    setMessages(conv.messages);
-    if (conv.model && models.some(m => m.filename === conv.model)) {
-      setSelectedModel(conv.model);
-    }
-    // Try to compute approximate token usage from messages
-    const total = conv.messages.reduce((sum, m) => {
-      const text = Array.isArray(m.content)
-        ? m.content.map(c => c.text || "").join(" ")
-        : (m.content || "");
-      return sum + text.split(/\s+/).length;
-    }, 0);
-    setTokenUsage({
-      prompt_tokens: Math.round(total * 0.7),
-      completion_tokens: Math.round(total * 0.3),
-      total_tokens: total
-    });
-  };
-
-  const handleDeleteConversation = (id, e) => {
-    e.stopPropagation();
-    const saved = localStorage.getItem("chat_conversations");
-    if (!saved) return;
-    try {
-      const list = JSON.parse(saved);
-      const filtered = list.filter(c => c.id !== id);
-      localStorage.setItem("chat_conversations", JSON.stringify(filtered));
-      setConversations(filtered);
-      if (activeConversationId === id) {
-        handleNewChat();
-      }
-    } catch (_) {}
   };
 
   const sendMessage = async () => {
@@ -351,70 +316,7 @@ function TextChat({ specs, showAlert, showConfirm, textSettings, setTextSettings
   };
 
   return (
-    <div className="text-chat-layout" style={{ display: "flex", gap: "16px", padding: "20px", height: "100%", width: "100%", boxSizing: "border-box", overflow: "hidden" }}>
-      {/* Collapsible Chat History Sidebar */}
-      {showHistory && (
-        <aside className="chat-history-sidebar">
-          <button
-            className="m3-btn m3-btn-tonal"
-            onClick={handleNewChat}
-            style={{
-              width: "100%",
-              height: "40px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "8px",
-              fontSize: "0.85rem",
-              fontWeight: "600",
-              borderRadius: "var(--md-shape-corner-medium)",
-              cursor: "pointer",
-              border: "1px solid var(--border-color)"
-            }}
-          >
-            <Plus size={16} />
-            <span>New Chat</span>
-          </button>
-          
-          <div className="history-items-list">
-            {conversations.length === 0 ? (
-              <div style={{ padding: "20px 10px", textAlign: "center", fontSize: "0.8rem", color: "var(--md-sys-color-outline)", opacity: 0.8 }}>
-                No saved chats
-              </div>
-            ) : (
-              conversations.map((conv) => {
-                const isActive = activeConversationId === conv.id;
-                const formattedDate = new Date(conv.timestamp).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit"
-                });
-                return (
-                  <div
-                    key={conv.id}
-                    className={`history-item ${isActive ? "active" : ""}`}
-                    onClick={() => handleSelectConversation(conv)}
-                  >
-                    <div className="history-item-info">
-                      <span className="history-item-title">{conv.title}</span>
-                      <span className="history-item-meta">{formattedDate} • {conv.model?.split(/[\\/]/).pop() || "GGUF"}</span>
-                    </div>
-                    <button
-                      className="history-item-delete"
-                      onClick={(e) => handleDeleteConversation(conv.id, e)}
-                      title="Delete Conversation"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </aside>
-      )}
-
+    <div className="text-chat-layout" style={{ display: "flex", padding: "20px", height: "100%", width: "100%", boxSizing: "border-box", overflow: "hidden" }}>
       <section className="text-chat-main" style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column" }}>
         <div className="text-chat-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
