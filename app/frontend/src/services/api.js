@@ -405,23 +405,28 @@ export async function streamChatWithLlm(messages, options = {}, onToken = () => 
   let timings = null;
 
   const consumeEvent = (eventText) => {
-    const data = eventText
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart())
-      .join("\n")
-      .trim();
-    if (!data || data === "[DONE]") return data === "[DONE]";
+    try {
+      const data = eventText
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n")
+        .trim();
+      if (!data || data === "[DONE]") return data === "[DONE]";
 
-    const parsed = JSON.parse(data);
-    const token = parsed.choices?.[0]?.delta?.content || "";
-    if (token) {
-      content += token;
-      onToken(token, content);
+      const parsed = JSON.parse(data);
+      const token = parsed.choices?.[0]?.delta?.content || "";
+      if (token) {
+        content += token;
+        onToken(token, content);
+      }
+      if (parsed.usage) usage = parsed.usage;
+      if (parsed.timings) timings = parsed.timings;
+      return false;
+    } catch (err) {
+      console.warn("Failed to parse EventStream JSON:", eventText, err);
+      return false;
     }
-    if (parsed.usage) usage = parsed.usage;
-    if (parsed.timings) timings = parsed.timings;
-    return false;
   };
 
   let finished = false;

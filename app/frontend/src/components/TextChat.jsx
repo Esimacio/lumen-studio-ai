@@ -909,17 +909,17 @@ export function MarkdownRenderer({ content }) {
                 return <h2 key={blockIdx} style={{ fontSize: "1.35rem", fontWeight: 700, margin: "18px 0 8px 0", color: "var(--md-sys-color-primary)" }}>{parseInlineMarkdown(block.content)}</h2>;
               case "ul":
                 return (
-                  <ul key={blockIdx} style={{ margin: "4px 0 4px 20px", padding: 0, listStyleType: "disc", display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <ul key={blockIdx} style={{ margin: "6px 0 6px 24px", padding: 0, listStyleType: "disc", display: "block" }}>
                     {block.items.map((item, itemIdx) => (
-                      <li key={itemIdx} style={{ fontSize: "0.9rem", lineHeight: 1.5 }}>{parseInlineMarkdown(item)}</li>
+                      <li key={itemIdx} style={{ fontSize: "0.9rem", lineHeight: 1.5, marginBottom: "4px", display: "list-item" }}>{parseInlineMarkdown(item)}</li>
                     ))}
                   </ul>
                 );
               case "ol":
                 return (
-                  <ol key={blockIdx} style={{ margin: "4px 0 4px 20px", padding: 0, listStyleType: "decimal", display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <ol key={blockIdx} style={{ margin: "6px 0 6px 24px", padding: 0, listStyleType: "decimal", display: "block" }}>
                     {block.items.map((item, itemIdx) => (
-                      <li key={itemIdx} style={{ fontSize: "0.9rem", lineHeight: 1.5 }}>{parseInlineMarkdown(item)}</li>
+                      <li key={itemIdx} style={{ fontSize: "0.9rem", lineHeight: 1.5, marginBottom: "4px", display: "list-item" }}>{parseInlineMarkdown(item)}</li>
                     ))}
                   </ol>
                 );

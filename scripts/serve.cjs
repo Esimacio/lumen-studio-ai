@@ -3440,7 +3440,10 @@ async function doLlmChat(req, res, body, retryCount = 0) {
           "Cache-Control": "no-cache, no-transform",
           "Connection": "keep-alive",
           "X-Accel-Buffering": "no",
+          "X-Content-Type-Options": "nosniff",
         });
+        const socket = res.socket || res.connection;
+        socket?.setNoDelay?.(true);
         res.flushHeaders?.();
         clientRes.on("data", (chunk) => res.write(chunk));
         clientRes.on("end", () => res.end());
