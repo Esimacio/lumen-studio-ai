@@ -2271,27 +2271,461 @@ html[data-theme="dark"] .m3-segment-item:hover:not(.active):not(.disabled) {
   overflow-y: auto;
 }
 
-/* DeepThink button animations and interactions */
-.chat-composer-deepthink-btn:hover {
-  background: rgba(99, 102, 241, 0.08) !important;
-  color: var(--md-sys-color-primary) !important;
-  border-color: color-mix(in srgb, var(--md-sys-color-primary) 50%, transparent) !important;
+/* ============================================================
+   PROFESSIONAL SETTINGS UI - Collapsible Cards, Tabs, Hardware Badge
+   ============================================================ */
+
+/* --- Section Tabs (Image | Text) --- */
+.settings-tabs-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 24px;
 }
 
-.chat-composer-deepthink-btn.active:hover {
-  background: rgba(99, 102, 241, 0.22) !important;
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--md-sys-color-surface-variant);
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  width: fit-content;
 }
 
-@keyframes spin-slow {
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  border-radius: 12px;
+  border: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.25s var(--md-transition-easing);
+  color: var(--md-sys-color-on-surface-variant);
+  background: transparent;
+  position: relative;
+  overflow: hidden;
+}
+
+.settings-tab:hover {
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+}
+
+.settings-tab.active {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.25);
+}
+
+.settings-tab .tab-icon {
+  transition: transform 0.3s ease;
+}
+
+.settings-tab.active .tab-icon {
+  transform: scale(1.1);
+}
+
+/* --- Hardware Tier Badge --- */
+.hardware-tier-badge {
+  border-radius: 20px;
+  padding: 24px;
+  margin-bottom: 28px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  background: var(--md-sys-color-surface);
+  box-shadow: var(--glass-shadow);
+}
+
+.hardware-tier-badge::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 20px 20px 0 0;
+}
+
+.hardware-tier-badge.tier-high::before {
+  background: linear-gradient(90deg, #22c55e, #10b981);
+}
+
+.hardware-tier-badge.tier-mid::before {
+  background: linear-gradient(90deg, #3b82f6, #0ea5e9);
+}
+
+.hardware-tier-badge.tier-low::before {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.hardware-tier-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.hardware-tier-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.tier-high .hardware-tier-icon {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.tier-mid .hardware-tier-icon {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.tier-low .hardware-tier-icon {
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.hardware-tier-info {
+  flex: 1;
+}
+
+.hardware-tier-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface);
+  margin-bottom: 4px;
+}
+
+.hardware-tier-specs {
+  font-size: 0.8rem;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.4;
+}
+
+.hardware-tier-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 14px 0;
+}
+
+.hardware-tier-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hardware-tier-chip {
+  font-size: 0.75rem;
+  padding: 5px 14px;
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-variant);
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface-variant);
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+}
+
+.hardware-tier-chip:hover {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  border-color: var(--md-sys-color-primary);
+}
+
+/* --- Collapsible Card --- */
+.collapsible-card {
+  border: 1px solid var(--md-sys-color-card-border);
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  background: var(--md-sys-color-surface);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.collapsible-card:hover {
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+html[data-theme="dark"] .collapsible-card:hover {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.25s ease;
+  border: none;
+  width: 100%;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+}
+
+.collapsible-header:hover {
+  background: var(--md-sys-color-surface-variant);
+}
+
+.collapsible-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.collapsible-header-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-primary);
+  flex-shrink: 0;
+}
+
+.collapsible-header-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface);
+}
+
+.collapsible-header-subtitle {
+  font-size: 0.75rem;
+  color: var(--md-sys-color-outline);
+  margin-top: 2px;
+}
+
+.collapsible-chevron {
+  transition: transform 0.35s var(--md-transition-easing);
+  color: var(--md-sys-color-outline);
+  flex-shrink: 0;
+}
+
+.collapsible-chevron.expanded {
+  transform: rotate(180deg);
+  color: var(--md-sys-color-primary);
+}
+
+.collapsible-content {
+  padding: 0 22px 22px;
+  animation: fadeInSlide 0.3s var(--md-transition-easing);
+}
+
+@keyframes fadeInSlide {
   from {
-    transform: rotate(0deg);
+    opacity: 0;
+    transform: translateY(-8px);
   }
   to {
-    transform: rotate(360deg);
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
-.rotate-anim {
-  animation: spin-slow 8s linear infinite;
+/* --- Settings Section Header --- */
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface);
+}
+
+.settings-section-count {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-weight: 600;
+}
+
+/* --- Settings Grid Layout --- */
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+@media (min-width: 900px) {
+  .settings-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+}
+
+/* --- Premium Toggle Switch --- */
+.premium-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-variant);
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.premium-toggle:hover {
+  border-color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-primary-container);
+}
+
+.premium-toggle-checkbox {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--md-sys-color-outline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.premium-toggle-checkbox.checked {
+  background: var(--md-sys-color-primary);
+  border-color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+.premium-toggle-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface);
+}
+
+.premium-toggle-desc {
+  font-size: 0.75rem;
+  color: var(--md-sys-color-outline);
+  margin-top: 2px;
+}
+
+/* --- Settings Value Badge --- */
+.settings-value-badge {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Empty State for Settings --- */
+.settings-empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--md-sys-color-outline);
+}
+
+.settings-empty-state-icon {
+  font-size: 3rem;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.settings-empty-state-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface);
+  margin-bottom: 8px;
+}
+
+.settings-empty-state-desc {
+  font-size: 0.85rem;
+  max-width: 400px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+/* --- Responsive Adjustments --- */
+@media (max-width: 600px) {
+  .hardware-tier-badge {
+    padding: 16px;
+    border-radius: 16px;
+  }
+  
+  .hardware-tier-header {
+    gap: 12px;
+  }
+  
+  .hardware-tier-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 1.2rem;
+  }
+  
+  .hardware-tier-name {
+    font-size: 1rem;
+  }
+  
+  .collapsible-header {
+    padding: 14px 16px;
+  }
+  
+  .collapsible-content {
+    padding: 0 16px 16px;
+  }
+  
+  .settings-tab {
+    padding: 8px 16px;
+    font-size: 0.85rem;
+  }
+}
+
+/* --- Settings Page Header --- */
+.settings-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-page-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-page-subtitle {
+  font-size: 0.85rem;
+  color: var(--md-sys-color-outline);
+  margin-top: 4px;
 }
 
