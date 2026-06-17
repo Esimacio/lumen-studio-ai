@@ -2,7 +2,8 @@ import React, { memo, useEffect, useState, useCallback } from "react";
 import {
   Crop, Sliders, Cpu, Info, MessageSquare, SlidersHorizontal, Zap,
   ChevronDown, Image, Type, Settings2, Gauge, Brain, Sparkles,
-  Monitor, HardDrive, MemoryStick, Thermometer, Hash, Layers
+  Monitor, HardDrive, MemoryStick, Thermometer, Hash, Layers,
+  ChevronRight, Box, Wand2, Lightbulb, RotateCcw, Check
 } from "lucide-react";
 import { stopServer, formatBytes, getLlmStatus } from "../services/api";
 
@@ -23,7 +24,7 @@ const isSD15OrCustomModel = (modelName) => {
 };
 
 // ─── Collapsible Card Component ───
-function CollapsibleCard({ icon: Icon, title, subtitle, children, defaultExpanded = true, id, onToggle }) {
+function CollapsibleCard({ icon: Icon, title, subtitle, children, defaultExpanded = false, id, badge, badgeColor }) {
   const [isExpanded, setIsExpanded] = useState(() => {
     const saved = localStorage.getItem(`settings_card_${id}`);
     return saved !== null ? saved === "true" : defaultExpanded;
@@ -33,8 +34,7 @@ function CollapsibleCard({ icon: Icon, title, subtitle, children, defaultExpande
     const newState = !isExpanded;
     setIsExpanded(newState);
     localStorage.setItem(`settings_card_${id}`, String(newState));
-    onToggle?.(id, newState);
-  }, [isExpanded, id, onToggle]);
+  }, [isExpanded, id]);
 
   return (
     <div className="collapsible-card">
@@ -49,14 +49,29 @@ function CollapsibleCard({ icon: Icon, title, subtitle, children, defaultExpande
             <Icon size={18} />
           </div>
           <div>
-            <div className="collapsible-header-title">{title}</div>
+            <div className="collapsible-header-title">
+              {title}
+              {badge && (
+                <span 
+                  className="collapsible-header-badge" 
+                  style={{ 
+                    background: badgeColor || "var(--md-sys-color-primary-container)",
+                    color: badgeColor ? "#fff" : "var(--md-sys-color-on-primary-container)"
+                  }}
+                >
+                  {badge}
+                </span>
+              )}
+            </div>
             {subtitle && <div className="collapsible-header-subtitle">{subtitle}</div>}
           </div>
         </div>
-        <ChevronDown
-          size={20}
-          className={`collapsible-chevron ${isExpanded ? "expanded" : ""}`}
-        />
+        <div className="collapsible-header-right">
+          <ChevronDown
+            size={20}
+            className={`collapsible-chevron ${isExpanded ? "expanded" : ""}`}
+          />
+        </div>
       </button>
       {isExpanded && (
         <div className="collapsible-content">
@@ -72,9 +87,9 @@ function HardwareTierBadge({ specs }) {
   if (!specs?.tier) return null;
 
   const tierConfig = {
-    high: { icon: "🚀", label: "High-End PC", color: "tier-high" },
-    mid: { icon: "⚖️", label: "Balanced PC", color: "tier-mid" },
-    low: { icon: "🥔", label: "Potato PC", color: "tier-low" },
+    high: { icon: "🚀", label: "High-End PC", color: "tier-high", accent: "#22c55e" },
+    mid: { icon: "⚖️", label: "Balanced PC", color: "tier-mid", accent: "#3b82f6" },
+    low: { icon: "🥔", label: "Potato PC", color: "tier-low", accent: "#f59e0b" },
   };
 
   const tier = tierConfig[specs.tier] || tierConfig.low;
@@ -109,40 +124,8 @@ function HardwareTierBadge({ specs }) {
   );
 }
 
-// ─── Section Tabs Component ───
-function SectionTabs({ activeTab, onTabChange }) {
-  const tabs = [
-    { id: "image", label: "Image Generation", icon: Image },
-    { id: "text", label: "Text Generation", icon: Type },
-  ];
-
-  return (
-    <div className="settings-tabs-container">
-      <div className="settings-tabs" role="tablist">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              className={`settings-tab ${isActive ? "active" : ""}`}
-              onClick={() => onTabChange(tab.id)}
-              role="tab"
-              aria-selected={isActive}
-              type="button"
-            >
-              <Icon size={18} className="tab-icon" />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ─── Premium Toggle Component ───
-function PremiumToggle({ checked, onChange, label, description, icon: Icon }) {
+function PremiumToggle({ checked, onChange, label, description }) {
   return (
     <label className="premium-toggle" style={{ cursor: "pointer" }}>
       <div
@@ -151,13 +134,30 @@ function PremiumToggle({ checked, onChange, label, description, icon: Icon }) {
         role="checkbox"
         aria-checked={checked}
       >
-        {checked && <Sparkles size={14} />}
+        {checked && <Check size={14} />}
       </div>
       <div style={{ flex: 1 }}>
         <div className="premium-toggle-label">{label}</div>
         {description && <div className="premium-toggle-desc">{description}</div>}
       </div>
     </label>
+  );
+}
+
+// ─── Section Header Component ───
+function SectionHeader({ icon: Icon, title, count, color }) {
+  return (
+    <div className="settings-section-header" style={{ borderLeftColor: color }}>
+      <div className="settings-section-icon" style={{ background: color + "15", color }}>
+        <Icon size={22} />
+      </div>
+      <div>
+        <div className="settings-section-title">{title}</div>
+      </div>
+      {count && (
+        <span className="settings-section-count">{count} settings</span>
+      )}
+    </div>
   );
 }
 
@@ -183,14 +183,7 @@ function Settings({
   cleanupSafeItems,
   diagnosticsCopied,
 }) {
-  const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem("settings_active_tab") || "image";
-  });
   const [llmStatus, setLlmStatus] = useState({ ready: false, settings: {} });
-
-  useEffect(() => {
-    localStorage.setItem("settings_active_tab", activeTab);
-  }, [activeTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -312,21 +305,27 @@ function Settings({
     }));
   };
 
-  // ─── Image Settings Tab Content ───
-  const ImageSettingsContent = () => (
+  // ─── Image Settings ───
+  const ImageSettings = () => (
     <>
+      <SectionHeader 
+        icon={Image} 
+        title="Image Generation" 
+        count={4}
+        color="#3b82f6"
+      />
+      
       <CollapsibleCard
         id="image_size"
         icon={Crop}
-        title="Image Size & Shape"
-        subtitle={`${constraints.width} × ${constraints.height} pixels`}
-        defaultExpanded={true}
+        title="Size & Shape"
+        subtitle={`${constraints.width} × ${constraints.height} px`}
+        defaultExpanded={false}
       >
         <div className="m3-field-group">
-          {/* Size Mode Toggle */}
           <div className="m3-slider-group">
             <div className="m3-slider-header">
-              <span className="m3-slider-label">Resolution Mode</span>
+              <span className="m3-slider-label">Resolution</span>
               <span className="settings-value-badge">
                 {constraints.width >= 1024 ? "SDXL" : "SD 1.5"}
               </span>
@@ -346,18 +345,12 @@ function Settings({
                   }}
                   disabled={isSD15OrCustom && mode === "sdxl"}
                 >
-                  {mode === "sd15" ? "512px Base" : "1024px HD"}
+                  {mode === "sd15" ? "512px" : "1024px"}
                 </button>
               ))}
             </div>
-            {isSD15OrCustom && (
-              <span style={{ fontSize: "0.75rem", color: "var(--md-sys-color-outline)" }}>
-                Custom models use 512px base resolution for compatibility.
-              </span>
-            )}
           </div>
 
-          {/* Aspect Ratio Buttons */}
           <div className="m3-slider-group">
             <div className="m3-slider-header">
               <span className="m3-slider-label">Aspect Ratio</span>
@@ -386,7 +379,6 @@ function Settings({
             </div>
           </div>
 
-          {/* Custom Dimensions */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <div className="m3-text-field">
               <label className="m3-text-field-label">Width</label>
@@ -420,11 +412,10 @@ function Settings({
         id="image_quality"
         icon={Sliders}
         title="Quality & Speed"
-        subtitle={`${constraints.steps} steps • ${constraints.sampler}`}
-        defaultExpanded={true}
+        subtitle={`${constraints.steps} steps`}
+        defaultExpanded={false}
       >
         <div className="m3-field-group">
-          {/* Steps Slider */}
           <div className="m3-slider-group">
             <div className="m3-slider-header">
               <span className="m3-slider-label">Detail Steps</span>
@@ -440,12 +431,11 @@ function Settings({
             />
             <span style={{ fontSize: "0.75rem", color: "var(--md-sys-color-outline)" }}>
               {isOpenVinoNpu
-                ? "LCM OpenVINO uses 1-8 fast inference steps."
-                : "More steps = sharper details, but takes longer."}
+                ? "LCM OpenVINO: 1-8 fast steps"
+                : "More steps = sharper details, longer time"}
             </span>
           </div>
 
-          {/* Seed */}
           <div className="m3-text-field">
             <label className="m3-text-field-label">Random Seed</label>
             <div style={{ display: "flex", gap: "8px" }}>
@@ -454,7 +444,7 @@ function Settings({
                 className="m3-input"
                 value={constraints.seed}
                 onChange={(e) => updateConstraint("seed", parseInt(e.target.value) || -1)}
-                placeholder="-1 for random..."
+                placeholder="-1 for random"
                 style={{ flex: 1 }}
               />
               <button
@@ -472,7 +462,7 @@ function Settings({
         id="image_memory"
         icon={SlidersHorizontal}
         title="Memory Optimizations"
-        subtitle="Reduce VRAM usage"
+        subtitle="VRAM saving options"
         defaultExpanded={false}
       >
         <div className="m3-field-group">
@@ -481,21 +471,18 @@ function Settings({
             onChange={(v) => updateConstraint("vaeTiling", v)}
             label="VAE Tiling"
             description="Process image in tiles to save VRAM"
-            icon={Layers}
           />
           <PremiumToggle
             checked={constraints.vaeOnCpu}
             onChange={(v) => updateConstraint("vaeOnCpu", v)}
             label="VAE on CPU"
-            description="Run decoder on CPU if GPU runs out of memory"
-            icon={Cpu}
+            description="Run decoder on CPU if GPU OOM"
           />
           <PremiumToggle
             checked={constraints.useFlashAttn}
             onChange={(v) => updateConstraint("useFlashAttn", v)}
             label="Flash Attention"
             description="Faster attention with less memory"
-            icon={Zap}
           />
         </div>
       </CollapsibleCard>
@@ -530,15 +517,22 @@ function Settings({
     </>
   );
 
-  // ─── Text Settings Tab Content ───
-  const TextSettingsContent = () => (
+  // ─── Text Settings ───
+  const TextSettings = () => (
     <>
+      <SectionHeader 
+        icon={Type} 
+        title="Text Generation" 
+        count={5}
+        color="#8b5cf6"
+      />
+      
       <CollapsibleCard
         id="text_model"
         icon={MessageSquare}
         title="Model & Context"
         subtitle={`${textSettings.contextSize || "Auto"} context`}
-        defaultExpanded={true}
+        defaultExpanded={false}
       >
         <div className="m3-field-group">
           <div className="m3-text-field">
@@ -568,7 +562,7 @@ function Settings({
               step="512"
             />
             <span style={{ fontSize: "0.75rem", color: "var(--md-sys-color-outline)" }}>
-              0 = Auto (model default). Larger = more memory used.
+              0 = Auto (model default)
             </span>
           </div>
         </div>
@@ -578,8 +572,8 @@ function Settings({
         id="text_params"
         icon={Settings2}
         title="Generation Parameters"
-        subtitle={`Temp: ${textSettings.temperature} • TopP: ${textSettings.topP}`}
-        defaultExpanded={true}
+        subtitle={`Temp: ${textSettings.temperature}`}
+        defaultExpanded={false}
       >
         <div className="m3-field-group">
           <div className="m3-slider-group">
@@ -732,7 +726,7 @@ function Settings({
               max="50"
             />
             <span style={{ fontSize: "0.75rem", color: "var(--md-sys-color-outline)" }}>
-              50 = All layers on GPU. 0 = CPU only.
+              50 = All layers on GPU
             </span>
           </div>
 
@@ -754,7 +748,7 @@ function Settings({
 
           <div className="m3-slider-group">
             <div className="m3-slider-header">
-              <span className="m3-slider-label">KV Cache Type</span>
+              <span className="m3-slider-label">KV Cache</span>
             </div>
             <div className="m3-segmented-button">
               {["q4_0", "q8_0", "f16"].map((type) => (
@@ -790,7 +784,6 @@ function Settings({
               ? "Show model's reasoning process"
               : "Model does not support thinking"
             }
-            icon={Brain}
           />
           {!supportsThinking && (
             <div style={{
@@ -802,7 +795,7 @@ function Settings({
               color: "var(--md-sys-color-error)"
             }}>
               <Info size={14} style={{ verticalAlign: "middle", marginRight: "6px" }} />
-              Current model does not support thinking. Load a reasoning model (e.g., DeepSeek-R1, QwQ) to enable.
+              Current model does not support thinking. Load a reasoning model to enable.
             </div>
           )}
         </div>
@@ -812,7 +805,7 @@ function Settings({
         id="text_backend"
         icon={Cpu}
         title="Text Backend"
-        subtitle={llmStatus.settings?.backendMode || "Not running"}
+        subtitle={llmStatus.settings?.backendMode || "Stopped"}
         defaultExpanded={false}
       >
         <div className="m3-field-group">
@@ -858,17 +851,14 @@ function Settings({
         </div>
       </div>
 
-      {/* Tabs */}
-      <SectionTabs activeTab={activeTab} onTabChange={setActiveTab} />
-
       {/* Hardware Tier Badge */}
       <HardwareTierBadge specs={specs} />
 
-      {/* Tab Content */}
-      <div className="settings-grid">
-        {activeTab === "image" && <ImageSettingsContent />}
-        {activeTab === "text" && <TextSettingsContent />}
-      </div>
+      {/* Image Settings Section */}
+      <ImageSettings />
+
+      {/* Text Settings Section */}
+      <TextSettings />
     </div>
   );
 }
