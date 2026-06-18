@@ -3,9 +3,10 @@ import {
   Crop, Sliders, Cpu, Info, MessageSquare, SlidersHorizontal, Zap,
   ChevronDown, Image, Type, Settings2, Gauge, Brain, Sparkles,
   Monitor, HardDrive, MemoryStick, Thermometer, Hash, Layers,
-  ChevronRight, Box, Wand2, Lightbulb, RotateCcw, Check
+  ChevronRight, Box, Wand2, Lightbulb, RotateCcw, Check, Palette
 } from "lucide-react";
 import { stopServer, formatBytes, getLlmStatus } from "../services/api";
+import { THEMES } from "../themes";
 
 const ASPECT_RATIOS = [
   { id: "1:1", label: "1:1 Square", width: 512, height: 512, sdxl_width: 1024, sdxl_height: 1024, desc: "Social posts & avatars" },
@@ -182,6 +183,8 @@ function Settings({
   copyDiagnostics,
   cleanupSafeItems,
   diagnosticsCopied,
+  theme,
+  setTheme,
 }) {
   const [llmStatus, setLlmStatus] = useState({ ready: false, settings: {} });
 
@@ -843,6 +846,81 @@ function Settings({
     </>
   );
 
+  // ─── Appearance Settings ───
+  const AppearanceSettings = () => (
+    <>
+      <SectionHeader 
+        icon={Palette} 
+        title="Appearance & Themes" 
+        count={THEMES.length}
+        color="var(--md-sys-color-primary)"
+      />
+      
+      <div className="settings-subsection" style={{ marginBottom: "28px" }}>
+        <div className="settings-subsection-title">
+          <Palette size={16} />
+          Color Themes
+        </div>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+          gap: "14px",
+          marginTop: "14px"
+        }}>
+          {THEMES.map((t) => {
+            const isActive = theme === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTheme(t.id)}
+                className={`theme-card-btn ${isActive ? "active" : ""}`}
+                style={{
+                  background: t.bg,
+                  color: t.type === "dark" ? "#f4f4f5" : "#0f172a",
+                  border: isActive ? "2px solid var(--md-sys-color-primary)" : "1px solid var(--border-color)",
+                  borderRadius: "12px",
+                  padding: "16px",
+                  textAlign: "left",
+                  cursor: "pointer",
+                  position: "relative",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                  boxShadow: isActive ? "0 4px 12px rgba(0,0,0,0.15)" : "none",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                  <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>{t.name}</span>
+                  {isActive && (
+                    <div style={{
+                      background: "var(--md-sys-color-primary)",
+                      color: "var(--md-sys-color-on-primary)",
+                      borderRadius: "50%",
+                      width: "18px",
+                      height: "18px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center"
+                    }}>
+                      <Check size={12} />
+                    </div>
+                  )}
+                </div>
+                
+                {/* Preview circles for primary and secondary colors */}
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: t.primary, border: "1px solid rgba(255,255,255,0.2)" }} title="Primary" />
+                  <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: t.secondary, border: "1px solid rgba(255,255,255,0.2)" }} title="Secondary" />
+                  <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: t.bg, border: "1px solid rgba(0,0,0,0.15)" }} title="Background" />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div className="workspace-area">
       {/* Page Header */}
@@ -860,6 +938,9 @@ function Settings({
 
       {/* Hardware Tier Badge */}
       <HardwareTierBadge specs={specs} />
+
+      {/* Appearance & Themes Section */}
+      <AppearanceSettings />
 
       {/* Image Settings Section */}
       <ImageSettings />

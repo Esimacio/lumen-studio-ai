@@ -568,6 +568,8 @@ function App() {
             copyDiagnostics={copyDiagnostics}
             cleanupSafeItems={cleanupSafeItems}
             diagnosticsCopied={diagnosticsCopied}
+            theme={theme}
+            setTheme={setTheme}
           />
         </div>
       </div>
