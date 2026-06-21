@@ -15,6 +15,7 @@ set LLM_VULKAN_BACKEND=%APP%\llm-backend\win\vulkan\llama-server.exe
 set LLM_SYCL_BACKEND=%APP%\llm-backend\win\sycl\llama-server.exe
 set LLM_CPU_BACKEND=%APP%\llm-backend\win\cpu\llama-server.exe
 set SPEECH_BACKEND=%APP%\speech-backend\win\whisper-cli.exe
+set TTS_RUNTIME=%APP%\tts-runtime\node_modules\kokoro-js
 set SERVE=%~dp0scripts\serve.cjs
 if "%FRONTEND_PORT%"=="" set FRONTEND_PORT=1420
 if "%LLM_PORT%"=="" set LLM_PORT=10086
@@ -41,6 +42,10 @@ if not exist "%LLM_CUDA_BACKEND%" if not exist "%LLM_HIP_BACKEND%" if not exist 
 )
 if not exist "%SPEECH_BACKEND%" (
     set SETUP_REASON=whisper.cpp speech backend is missing.
+    goto :run_setup
+)
+if not exist "%TTS_RUNTIME%" (
+    set SETUP_REASON=Kokoro text-to-speech runtime is missing.
     goto :run_setup
 )
 if exist "%CUDA_BACKEND%" goto :launch
@@ -107,6 +112,7 @@ echo   Web UI:     http://localhost:%FRONTEND_PORT%
 echo   GPU API:    Auto-selected by the app (starts at 8080)
 echo   Text API:   Starts when a GGUF model is loaded (port %LLM_PORT%)
 echo   Speech:     Managed locally by the app
+echo   TTS:        Managed locally by the app
 echo.
 echo   Press Ctrl+C in this window to stop all services.
 echo  ============================================================

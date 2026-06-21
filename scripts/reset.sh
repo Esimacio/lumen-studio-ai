@@ -40,6 +40,12 @@ if [[ -d "$APP_DIR/speech-backend" ]]; then
   rm -rf "$APP_DIR/speech-backend"
 fi
 
+# Delete Kokoro TTS runtime dependencies
+if [[ -d "$APP_DIR/tts-runtime" ]]; then
+  echo "   >> Removing Kokoro TTS runtime dependencies..."
+  rm -rf "$APP_DIR/tts-runtime"
+fi
+
 # Delete dist
 if [[ -d "$APP_DIR/dist" ]]; then
   echo "   >> Removing dist/ build folder..."
@@ -61,9 +67,22 @@ if [[ -d "$APP_DIR/speech-models" ]]; then
   echo "   >> Preserving speech models in app/speech-models."
 fi
 
+# Preserve TTS models
+if [[ -d "$APP_DIR/tts-models" ]]; then
+  echo "   >> Preserving TTS models in app/tts-models."
+fi
+
 # Preserve transcriptions
 if [[ -d "$APP_DIR/transcriptions" ]]; then
   echo "   >> Preserving speech transcripts in app/transcriptions."
+fi
+
+# Preserve TTS outputs/cache
+if [[ -d "$APP_DIR/tts-outputs" ]]; then
+  echo "   >> Preserving TTS outputs in app/tts-outputs."
+fi
+if [[ -d "$APP_DIR/tts-cache" ]]; then
+  echo "   >> Preserving TTS model cache in app/tts-cache."
 fi
 
 # Preserve OpenVINO models
@@ -92,7 +111,7 @@ fi
 
 echo ""
 echo "  ============================================================"
-echo "   Reset complete. Image models, text models, speech models, transcripts, OpenVINO models, and generated outputs were preserved."
+echo "   Reset complete. Image models, text models, speech models, TTS models, transcripts, TTS outputs, OpenVINO models, and generated outputs were preserved."
 echo "  ============================================================"
 echo ""
 read -rp "  Press Enter to close..."

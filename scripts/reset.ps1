@@ -39,6 +39,13 @@ if (Test-Path $speechBackendDir) {
     Remove-Item $speechBackendDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# Delete Kokoro TTS runtime dependencies
+$ttsRuntimeDir = Join-Path $appDir "tts-runtime"
+if (Test-Path $ttsRuntimeDir) {
+    Write-Host "   >> Removing Kokoro TTS runtime dependencies..." -ForegroundColor Cyan
+    Remove-Item $ttsRuntimeDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # Delete dist
 $distDir = Join-Path $appDir "dist"
 if (Test-Path $distDir) {
@@ -64,10 +71,26 @@ if (Test-Path $speechModelsDir) {
     Write-Host "   >> Preserving speech models in app/speech-models." -ForegroundColor Cyan
 }
 
+# Preserve TTS models
+$ttsModelsDir = Join-Path $appDir "tts-models"
+if (Test-Path $ttsModelsDir) {
+    Write-Host "   >> Preserving TTS models in app/tts-models." -ForegroundColor Cyan
+}
+
 # Preserve transcriptions
 $transcriptionsDir = Join-Path $appDir "transcriptions"
 if (Test-Path $transcriptionsDir) {
     Write-Host "   >> Preserving speech transcripts in app/transcriptions." -ForegroundColor Cyan
+}
+
+# Preserve TTS outputs/cache
+$ttsOutputsDir = Join-Path $appDir "tts-outputs"
+if (Test-Path $ttsOutputsDir) {
+    Write-Host "   >> Preserving TTS outputs in app/tts-outputs." -ForegroundColor Cyan
+}
+$ttsCacheDir = Join-Path $appDir "tts-cache"
+if (Test-Path $ttsCacheDir) {
+    Write-Host "   >> Preserving TTS model cache in app/tts-cache." -ForegroundColor Cyan
 }
 
 # Preserve OpenVINO models
@@ -101,7 +124,7 @@ if (Test-Path $lockFile) {
 
 Write-Host ""
 Write-Host "  ============================================================" -ForegroundColor Green
-Write-Host "   Reset complete. Image models, text models, speech models, transcripts, OpenVINO models, and generated outputs were preserved." -ForegroundColor Green
+Write-Host "   Reset complete. Image models, text models, speech models, TTS models, transcripts, TTS outputs, OpenVINO models, and generated outputs were preserved." -ForegroundColor Green
 Write-Host "  ============================================================" -ForegroundColor Green
 Write-Host ""
 Read-Host "  Press Enter to close..."

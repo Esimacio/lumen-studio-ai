@@ -663,6 +663,95 @@ export async function deleteSpeechTranscription(filename) {
   return await readJsonResponse(res, "The local server returned an invalid speech transcription delete response.");
 }
 
+export async function getTtsStatus() {
+  try {
+    const res = await fetch("/api/tts/status");
+    return await readJsonResponse(res, "The local server returned invalid TTS runtime status.");
+  } catch (err) {
+    return { ready: false, running: false, runtimeInstalled: false, error: err.message, settings: {}, voices: [] };
+  }
+}
+
+export async function listTtsModels() {
+  const res = await fetch("/api/tts/models");
+  const data = await readJsonResponse(res, "The local server returned invalid TTS model data.");
+  return data.models || [];
+}
+
+export async function startTts(model, options = {}) {
+  const res = await fetch("/api/tts/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      voice: options.voice,
+      speed: options.speed,
+    }),
+  });
+  return await readJsonResponse(res, "The local server returned an invalid TTS start response.");
+}
+
+export async function stopTts() {
+  const res = await fetch("/api/tts/stop", { method: "POST" });
+  return await readJsonResponse(res, "The local server returned an invalid TTS stop response.");
+}
+
+export async function speakTts(text, options = {}) {
+  const res = await fetch("/api/tts/speak", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text,
+      model: options.model,
+      voice: options.voice,
+      speed: options.speed,
+    }),
+    signal: options.signal,
+  });
+  const data = await readJsonResponse(res, "The local server returned an invalid TTS response.");
+  return data.output;
+}
+
+export async function downloadTtsModel(modelIdOrUrl, filename = null) {
+  const res = await fetch("/api/tts/download-model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: modelIdOrUrl,
+      filename,
+    }),
+  });
+  return await readJsonResponse(res, "The local server returned an invalid TTS download response.");
+}
+
+export async function importTtsModel(file, onProgress, signal) {
+  return await uploadModelFileToEndpoint(file, "/api/tts/import-model", onProgress, signal);
+}
+
+export async function deleteTtsModel(filename) {
+  const res = await fetch("/api/tts/delete-model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename }),
+  });
+  return await readJsonResponse(res, "The local server returned an invalid TTS model delete response.");
+}
+
+export async function listTtsOutputs() {
+  const res = await fetch("/api/tts/outputs");
+  const data = await readJsonResponse(res, "The local server returned invalid TTS output history.");
+  return data.outputs || [];
+}
+
+export async function deleteTtsOutput(filename) {
+  const res = await fetch("/api/tts/delete-output", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename }),
+  });
+  return await readJsonResponse(res, "The local server returned an invalid TTS output delete response.");
+}
+
 export async function getLlmRecommendations(useCase = "chat", limit = 10) {
   try {
     const res = await fetch(`/api/llm/recommend?useCase=${encodeURIComponent(useCase)}&limit=${limit}`);

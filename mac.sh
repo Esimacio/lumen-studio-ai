@@ -23,6 +23,7 @@ if [[ "$(uname -m)" == "arm64" ]]; then
 else
   LLM_BACKEND_PATH="$APP_DIR/llm-backend/mac/x64/llama-server"
 fi
+TTS_RUNTIME_PATH="$APP_DIR/tts-runtime/node_modules/kokoro-js"
 PLATFORM_LABEL="macOS"
 
 DIST_INDEX="$APP_DIR/dist/index.html"
@@ -111,6 +112,9 @@ fi
 if [[ ! -x "$LLM_BACKEND_PATH" ]]; then
   SETUP_REASON="No macOS llama.cpp text backend is installed."
 fi
+if [[ ! -d "$TTS_RUNTIME_PATH" ]]; then
+  SETUP_REASON="Kokoro text-to-speech runtime is missing."
+fi
 
 if [[ -n "$SETUP_REASON" ]]; then
   echo ""
@@ -188,7 +192,8 @@ echo "   Running!"
 echo "   Web UI:     http://localhost:${FRONTEND_PORT}"
 echo "   GPU API:    Auto-selected by the app (starts at 8080)"
 echo "   Text API:   Starts when a GGUF model is loaded (port ${LLM_PORT})"
-echo "   Speech:     Available when a whisper.cpp binary is present"
+echo "   Speech:     Managed locally by the app"
+echo "   TTS:        Managed locally by the app"
 echo ""
 echo "   Press Ctrl+C in this window to stop all services."
 echo "  ============================================================"

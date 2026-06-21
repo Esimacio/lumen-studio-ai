@@ -31,9 +31,11 @@ const PORT_FRONTEND = readPort(process.env.PORT || process.env.FRONTEND_PORT, 14
 const PREFERRED_BACKEND_PORT = readPort(process.env.BACKEND_PORT || process.env.SD_BACKEND_PORT, 8080);
 const PREFERRED_LLM_PORT = readPort(process.env.LLM_PORT, 10086);
 const PREFERRED_SPEECH_PORT = readPort(process.env.SPEECH_PORT, 10088);
+const PREFERRED_TTS_PORT = readPort(process.env.TTS_PORT, 10089);
 let PORT_BACKEND = PREFERRED_BACKEND_PORT;
 let PORT_LLM = PREFERRED_LLM_PORT;
 let PORT_SPEECH = PREFERRED_SPEECH_PORT;
+let PORT_TTS = PREFERRED_TTS_PORT;
 const MAX_JSON_BODY_BYTES = 64 * 1024 * 1024;
 const SERVER_BUILD = "text-image-v1";
 const ROOT    = path.join(__dirname, "..");
@@ -115,6 +117,20 @@ const TRANSCRIPTIONS = path.join(ROOT, "app", "transcriptions");
 if (!fs.existsSync(TRANSCRIPTIONS)) {
   fs.mkdirSync(TRANSCRIPTIONS, { recursive: true });
 }
+const TTS_MODELS = path.join(ROOT, "app", "tts-models");
+if (!fs.existsSync(TTS_MODELS)) {
+  fs.mkdirSync(TTS_MODELS, { recursive: true });
+}
+const TTS_OUTPUTS = path.join(ROOT, "app", "tts-outputs");
+if (!fs.existsSync(TTS_OUTPUTS)) {
+  fs.mkdirSync(TTS_OUTPUTS, { recursive: true });
+}
+const TTS_CACHE = path.join(ROOT, "app", "tts-cache");
+if (!fs.existsSync(TTS_CACHE)) {
+  fs.mkdirSync(TTS_CACHE, { recursive: true });
+}
+const TTS_RUNTIME = path.join(ROOT, "app", "tts-runtime");
+const TTS_WORKER = path.join(ROOT, "scripts", "tts-kokoro-worker.mjs");
 const SPEECH_BACKEND_PATHS = {
   winCli: path.join(ROOT, "app", "speech-backend", "win", "whisper-cli.exe"),
   winServer: path.join(ROOT, "app", "speech-backend", "win", "whisper-server.exe"),
@@ -134,6 +150,38 @@ const SPEECH_MODEL_CATALOG = [
   { id: "base", name: "Whisper Base Multilingual", filename: "ggml-base.bin", size: "142 MB", language: "Multilingual", recommended: false },
   { id: "base-q5_1", name: "Whisper Base Multilingual Q5", filename: "ggml-base-q5_1.bin", size: "57 MB", language: "Multilingual", recommended: false },
   { id: "small", name: "Whisper Small Multilingual", filename: "ggml-small.bin", size: "466 MB", language: "Multilingual", recommended: false },
+];
+const TTS_MODEL_CATALOG = [
+  {
+    id: "kokoro-onnx-q8",
+    name: "Kokoro 82M ONNX Q8",
+    filename: "kokoro-onnx-q8.json",
+    modelId: "onnx-community/Kokoro-82M-v1.0-ONNX",
+    dtype: "q8",
+    size: "Model cache managed by kokoro-js",
+    format: "Kokoro ONNX",
+    recommended: true,
+  },
+  {
+    id: "kokoro-onnx-fp32",
+    name: "Kokoro 82M ONNX FP32",
+    filename: "kokoro-onnx-fp32.json",
+    modelId: "onnx-community/Kokoro-82M-v1.0-ONNX",
+    dtype: "fp32",
+    size: "Model cache managed by kokoro-js",
+    format: "Kokoro ONNX",
+    recommended: false,
+  },
+];
+const TTS_VOICES = [
+  { id: "af_heart", name: "Heart", language: "en-us", gender: "Female", recommended: true },
+  { id: "af_bella", name: "Bella", language: "en-us", gender: "Female", recommended: false },
+  { id: "af_nicole", name: "Nicole", language: "en-us", gender: "Female", recommended: false },
+  { id: "af_sarah", name: "Sarah", language: "en-us", gender: "Female", recommended: false },
+  { id: "am_michael", name: "Michael", language: "en-us", gender: "Male", recommended: false },
+  { id: "am_fenrir", name: "Fenrir", language: "en-us", gender: "Male", recommended: false },
+  { id: "bf_emma", name: "Emma", language: "en-gb", gender: "Female", recommended: false },
+  { id: "bm_george", name: "George", language: "en-gb", gender: "Male", recommended: false },
 ];
 const OPENVINO_MODELS = path.join(ROOT, "app", "openvino-models");
 if (!fs.existsSync(OPENVINO_MODELS)) {
@@ -188,6 +236,24 @@ let speechTranscriptionState = {
   progress: 0,
   model: "",
   filename: "",
+};
+let ttsReady = false;
+let ttsError = null;
+let ttsOperationQueue = Promise.resolve();
+let ttsSettings = {
+  model: null,
+  voice: "af_heart",
+  speed: 1,
+  dtype: "q8",
+  backendMode: "Kokoro ONNX",
+};
+let ttsGenerationState = {
+  active: false,
+  phase: "",
+  progress: 0,
+  model: "",
+  voice: "",
+  output: "",
 };
 let llmSettings = {
   model: null,
@@ -1674,6 +1740,300 @@ function resolveSpeechModel(value) {
   return { ...model, path: modelPath };
 }
 
+function getTtsManifestPath(filename) {
+  const manifestPath = path.join(TTS_MODELS, path.basename(String(filename || "")));
+  return pathInside(manifestPath, TTS_MODELS) ? manifestPath : "";
+}
+
+function readTtsManifest(filename) {
+  const manifestPath = getTtsManifestPath(filename);
+  if (!manifestPath || !fs.existsSync(manifestPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  } catch (_) {
+    return null;
+  }
+}
+
+function installTtsCatalogModel(modelIdOrFilename) {
+  const raw = String(modelIdOrFilename || "").trim();
+  const catalogModel = TTS_MODEL_CATALOG.find((model) => model.id === raw || model.filename === raw) || TTS_MODEL_CATALOG[0];
+  if (!catalogModel) throw new Error("Unknown TTS model.");
+  const manifestPath = getTtsManifestPath(catalogModel.filename);
+  const manifest = {
+    ...catalogModel,
+    installed: true,
+    createdAt: new Date().toISOString(),
+    notes: "Kokoro model files are cached under app/tts-cache by kokoro-js on first generation.",
+  };
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+  return manifest;
+}
+
+function getTtsModels() {
+  const catalog = TTS_MODEL_CATALOG.map((model) => {
+    const manifest = readTtsManifest(model.filename);
+    const installed = Boolean(manifest);
+    const manifestPath = getTtsManifestPath(model.filename);
+    const sizeBytes = installed ? getPathSize(manifestPath) : 0;
+    return {
+      ...model,
+      ...(manifest || {}),
+      installed,
+      sizeBytes,
+      localSize: installed ? formatBytes(sizeBytes) : "",
+      url: `kokoro://install/${model.id}`,
+    };
+  });
+
+  const known = new Set(catalog.map((model) => model.filename.toLowerCase()));
+  let custom = [];
+  try {
+    custom = fs.readdirSync(TTS_MODELS)
+      .filter((filename) => filename.toLowerCase().endsWith(".json") && !known.has(filename.toLowerCase()))
+      .map((filename) => {
+        const manifest = readTtsManifest(filename) || {};
+        const sizeBytes = getPathSize(path.join(TTS_MODELS, filename));
+        return {
+          id: manifest.id || filename,
+          name: manifest.name || filename,
+          filename,
+          modelId: manifest.modelId || "onnx-community/Kokoro-82M-v1.0-ONNX",
+          dtype: manifest.dtype || "q8",
+          format: manifest.format || "Kokoro ONNX",
+          size: formatBytes(sizeBytes),
+          localSize: formatBytes(sizeBytes),
+          sizeBytes,
+          installed: true,
+          recommended: false,
+          custom: true,
+        };
+      });
+  } catch (_) {}
+  return [...catalog, ...custom];
+}
+
+function resolveTtsModel(value) {
+  const raw = String(value || "").trim();
+  const model = getTtsModels().find((item) => item.id === raw || item.filename === raw) ||
+    getTtsModels().find((item) => item.installed);
+  if (!model) throw new Error("Download or import a Kokoro TTS model from Model Manager first.");
+  const manifestPath = getTtsManifestPath(model.filename);
+  if (!manifestPath || !fs.existsSync(manifestPath)) {
+    throw new Error(`TTS model is not installed: ${model.filename}`);
+  }
+  return { ...model, path: manifestPath };
+}
+
+function getTtsRuntimeStatus() {
+  const nodeModules = path.join(TTS_RUNTIME, "node_modules");
+  const installed = fs.existsSync(path.join(nodeModules, "kokoro-js"));
+  return {
+    installed: installed && fs.existsSync(TTS_WORKER),
+    worker: TTS_WORKER,
+    runtime: TTS_RUNTIME,
+    cache: TTS_CACHE,
+    backendMode: "Kokoro ONNX",
+  };
+}
+
+function runExclusiveTtsOperation(operation) {
+  const run = ttsOperationQueue.catch(() => {}).then(operation);
+  ttsOperationQueue = run.catch(() => {});
+  return run;
+}
+
+async function startTts(settings = {}) {
+  const runtime = getTtsRuntimeStatus();
+  if (!runtime.installed) {
+    throw new Error("Kokoro TTS runtime is not installed. Run scripts/setup-tts for this platform.");
+  }
+  const model = resolveTtsModel(settings.model || ttsSettings.model);
+  await killBackend();
+  await killOpenVinoWorker();
+  await killLlm();
+  await stopSpeech();
+  PORT_TTS = PREFERRED_TTS_PORT;
+  ttsError = null;
+  ttsReady = true;
+  ttsSettings = {
+    ...ttsSettings,
+    model: model.filename,
+    voice: settings.voice || ttsSettings.voice || "af_heart",
+    speed: Math.max(0.5, Math.min(2, Number(settings.speed) || ttsSettings.speed || 1)),
+    dtype: model.dtype || settings.dtype || ttsSettings.dtype || "q8",
+    backendMode: runtime.backendMode,
+  };
+}
+
+async function stopTts() {
+  ttsReady = false;
+  ttsError = null;
+  ttsGenerationState = { active: false, phase: "", progress: 0, model: "", voice: "", output: "" };
+}
+
+function saveTtsOutput(result) {
+  const createdAt = new Date().toISOString();
+  const stamp = createdAt.replace(/[:.]/g, "-");
+  const base = `tts-${stamp}-${safeOutputName(result.voice || "voice")}`;
+  const wavFilename = `${base}.wav`;
+  const jsonFilename = `${base}.json`;
+  const wavPath = path.join(TTS_OUTPUTS, wavFilename);
+  fs.copyFileSync(result.wavPath, wavPath);
+  const metadata = {
+    text: result.text || "",
+    model: result.model,
+    modelName: result.modelName,
+    voice: result.voice,
+    voiceName: result.voiceName,
+    speed: result.speed,
+    durationMs: result.durationMs,
+    sampleRate: result.sampleRate || 24000,
+    createdAt,
+    audioFile: wavFilename,
+    metadata: jsonFilename,
+    displayName: result.displayName || `${result.voiceName || result.voice} - ${createdAt}`,
+  };
+  fs.writeFileSync(path.join(TTS_OUTPUTS, jsonFilename), JSON.stringify(metadata, null, 2), "utf8");
+  return {
+    ...metadata,
+    filename: jsonFilename,
+    url: `/tts-outputs/${encodeURIComponent(wavFilename)}`,
+  };
+}
+
+function listTtsOutputs() {
+  try {
+    return fs.readdirSync(TTS_OUTPUTS)
+      .filter((file) => file.toLowerCase().endsWith(".json"))
+      .map((file) => {
+        const filePath = path.join(TTS_OUTPUTS, file);
+        try {
+          const metadata = JSON.parse(fs.readFileSync(filePath, "utf8"));
+          const stat = fs.statSync(filePath);
+          return {
+            ...metadata,
+            filename: file,
+            displayName: metadata.displayName || metadata.text?.slice(0, 48) || metadata.audioFile || file,
+            sizeBytes: stat.size,
+            size: formatBytes(stat.size),
+            modifiedAt: stat.mtime.toISOString(),
+            createdAt: metadata.createdAt || stat.mtime.toISOString(),
+            url: metadata.audioFile ? `/tts-outputs/${encodeURIComponent(metadata.audioFile)}` : "",
+          };
+        } catch (_) {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  } catch (_) {
+    return [];
+  }
+}
+
+function synthesizeTts(text, options = {}) {
+  return new Promise((resolve, reject) => {
+    const cleanedText = String(text || "").trim();
+    if (!cleanedText) {
+      reject(new Error("Enter text to synthesize."));
+      return;
+    }
+    if (cleanedText.length > 5000) {
+      reject(new Error("TTS text is too long. Limit is 5000 characters for V1."));
+      return;
+    }
+    const runtime = getTtsRuntimeStatus();
+    if (!runtime.installed) {
+      reject(new Error("Kokoro TTS runtime is not installed."));
+      return;
+    }
+    const model = resolveTtsModel(options.model || ttsSettings.model);
+    const voice = String(options.voice || ttsSettings.voice || "af_heart");
+    const voiceInfo = TTS_VOICES.find((item) => item.id === voice) || { id: voice, name: voice };
+    const speed = Math.max(0.5, Math.min(2, Number(options.speed) || ttsSettings.speed || 1));
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const tempWav = path.join(TTS_OUTPUTS, `.tts-${stamp}.wav`);
+    const payload = {
+      text: cleanedText,
+      modelId: model.modelId || "onnx-community/Kokoro-82M-v1.0-ONNX",
+      dtype: model.dtype || "q8",
+      voice,
+      speed,
+      output: tempWav,
+      cacheDir: TTS_CACHE,
+    };
+
+    ttsGenerationState = {
+      active: true,
+      phase: "Generating speech...",
+      progress: -1,
+      model: model.filename,
+      voice,
+      output: "",
+    };
+
+    const startedAt = Date.now();
+    const proc = spawn(process.execPath, [TTS_WORKER], {
+      cwd: ROOT,
+      stdio: "pipe",
+      windowsHide: true,
+      env: {
+        ...process.env,
+        NODE_PATH: path.join(TTS_RUNTIME, "node_modules"),
+        TTS_RUNTIME,
+      },
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (data) => { stdout += data.toString(); });
+    proc.stderr.on("data", (data) => {
+      stderr += data.toString();
+      process.stderr.write("  [tts] " + data.toString());
+    });
+    proc.on("error", (err) => {
+      ttsGenerationState = { active: false, phase: "Failed", progress: 0, model: model.filename, voice, output: "" };
+      reject(err);
+    });
+    proc.on("exit", (code) => {
+      ttsGenerationState = { active: false, phase: code === 0 ? "Complete" : "Failed", progress: code === 0 ? 100 : 0, model: model.filename, voice, output: "" };
+      if (code !== 0) {
+        try { fs.unlinkSync(tempWav); } catch (_) {}
+        const message = (stderr || stdout || `Kokoro TTS exited with code ${code}`).trim().slice(-1400);
+        ttsError = message;
+        reject(new Error(message));
+        return;
+      }
+      try {
+        const workerResult = JSON.parse(stdout.trim() || "{}");
+        if (!workerResult.ok || !fs.existsSync(tempWav)) {
+          throw new Error(workerResult.error || "Kokoro TTS did not produce a WAV file.");
+        }
+        const saved = saveTtsOutput({
+          text: cleanedText,
+          model: model.filename,
+          modelName: model.name,
+          voice,
+          voiceName: voiceInfo.name,
+          speed,
+          durationMs: Date.now() - startedAt,
+          sampleRate: workerResult.sampleRate || 24000,
+          wavPath: tempWav,
+          displayName: `${voiceInfo.name || voice} - ${cleanedText.slice(0, 40)}`,
+        });
+        try { fs.unlinkSync(tempWav); } catch (_) {}
+        ttsError = null;
+        resolve(saved);
+      } catch (err) {
+        try { fs.unlinkSync(tempWav); } catch (_) {}
+        ttsError = err.message || String(err);
+        reject(err);
+      }
+    });
+    proc.stdin.end(JSON.stringify(payload));
+  });
+}
+
 function runExclusiveSpeechOperation(operation) {
   const run = speechOperationQueue.catch(() => {}).then(operation);
   speechOperationQueue = run.catch(() => {});
@@ -2091,13 +2451,25 @@ async function getHealth() {
       totalBytes: getPathSize(OUTPUTS),
       totalSize: formatBytes(getPathSize(OUTPUTS)),
     },
+    tts: {
+      models: fs.existsSync(TTS_MODELS) ? fs.readdirSync(TTS_MODELS).filter((file) => file.toLowerCase().endsWith(".json")).length : 0,
+      outputs: fs.existsSync(TTS_OUTPUTS) ? fs.readdirSync(TTS_OUTPUTS).filter((file) => file.toLowerCase().endsWith(".json")).length : 0,
+      runtimeInstalled: getTtsRuntimeStatus().installed,
+      totalBytes: getPathSize(TTS_MODELS) + getPathSize(TTS_OUTPUTS) + getPathSize(TTS_CACHE),
+      totalSize: formatBytes(getPathSize(TTS_MODELS) + getPathSize(TTS_OUTPUTS) + getPathSize(TTS_CACHE)),
+    },
     issues,
   };
 }
 
 function addCleanupCandidate(candidates, id, targetPath, reason, options = {}) {
   if (!fs.existsSync(targetPath)) return;
-  if (!options.allowUserData && (pathInside(targetPath, MODELS) || pathInside(targetPath, OUTPUTS))) return;
+  if (!options.allowUserData && (
+    pathInside(targetPath, MODELS) ||
+    pathInside(targetPath, OUTPUTS) ||
+    pathInside(targetPath, TTS_MODELS) ||
+    pathInside(targetPath, TTS_OUTPUTS)
+  )) return;
   const sizeBytes = getPathSize(targetPath);
   candidates.push({
     id,
@@ -4072,7 +4444,13 @@ function cancelModelDownload() {
       try { fs.unlinkSync(activeDownload.tempPath || activeDownload.destPath); } catch (_) {}
     }
   } else if (filename) {
-    const targetDir = downloadState.kind === "text" ? LLM_MODELS : downloadState.kind === "speech" ? SPEECH_MODELS : MODELS;
+    const targetDir = downloadState.kind === "text"
+      ? LLM_MODELS
+      : downloadState.kind === "speech"
+        ? SPEECH_MODELS
+        : downloadState.kind === "tts"
+          ? TTS_MODELS
+          : MODELS;
     try { fs.unlinkSync(`${path.join(targetDir, filename)}.part`); } catch (_) {}
   }
   activeDownload = null;
@@ -4397,9 +4775,17 @@ function streamModelUpload(req, filename, targetDir = MODELS, mode = "image") {
       ? lowerName.endsWith(".gguf")
       : mode === "speech"
         ? lowerName.endsWith(".bin")
+        : mode === "tts"
+          ? lowerName.endsWith(".json")
         : isModelFile(lowerName);
     if (!safeFilename || !valid) {
-      reject(new Error(mode === "text" ? "Filename must end with .gguf" : mode === "speech" ? "Filename must end with .bin" : "Filename must end with .gguf, .safetensors, or .ckpt"));
+      reject(new Error(mode === "text"
+        ? "Filename must end with .gguf"
+        : mode === "speech"
+          ? "Filename must end with .bin"
+          : mode === "tts"
+            ? "Filename must end with .json"
+            : "Filename must end with .gguf, .safetensors, or .ckpt"));
       return;
     }
 
@@ -4767,6 +5153,136 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     } catch (err) {
       console.error("  [api] Failed to delete transcription:", err);
+      return json(res, 500, { ok: false, error: err.message });
+    }
+  }
+
+  if (req.url === "/api/tts/status" && req.method === "GET") {
+    const runtime = getTtsRuntimeStatus();
+    return json(res, 200, {
+      ok: true,
+      ready: ttsReady,
+      running: ttsReady,
+      port: PORT_TTS,
+      preferredPort: PREFERRED_TTS_PORT,
+      runtimeInstalled: runtime.installed,
+      runtimePath: runtime.runtime,
+      workerPath: runtime.worker,
+      cachePath: runtime.cache,
+      backendMode: runtime.backendMode,
+      error: ttsError,
+      settings: ttsSettings,
+      generation: ttsGenerationState,
+      voices: TTS_VOICES,
+    });
+  }
+
+  if (req.url === "/api/tts/models" && req.method === "GET") {
+    return json(res, 200, { ok: true, models: getTtsModels(), voices: TTS_VOICES });
+  }
+
+  if (req.url === "/api/tts/start" && req.method === "POST") {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    try {
+      await runExclusiveTtsOperation(() => startTts(body));
+      return json(res, 200, { ok: true, ready: ttsReady, settings: ttsSettings, port: PORT_TTS });
+    } catch (err) {
+      ttsError = err.message || String(err);
+      return json(res, 500, { ok: false, error: ttsError });
+    }
+  }
+
+  if (req.url === "/api/tts/stop" && req.method === "POST") {
+    await stopTts();
+    return json(res, 200, { ok: true });
+  }
+
+  if (req.url === "/api/tts/speak" && req.method === "POST") {
+    const body = await readJsonBody(req, res, 512 * 1024);
+    if (!body) return;
+    try {
+      if (!ttsReady || (body.model && ttsSettings.model !== body.model)) {
+        await runExclusiveTtsOperation(() => startTts(body));
+      }
+      const output = await runExclusiveTtsOperation(() => synthesizeTts(body.text, body));
+      return json(res, 200, { ok: true, output });
+    } catch (err) {
+      ttsError = err.message || String(err);
+      return json(res, 500, { ok: false, error: ttsError });
+    }
+  }
+
+  if (req.url === "/api/tts/download-model" && req.method === "POST") {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    try {
+      const model = installTtsCatalogModel(body.modelId || body.model_id || body.model || body.filename);
+      return json(res, 200, { ok: true, message: "TTS model manifest installed", filename: model.filename, model });
+    } catch (err) {
+      return json(res, 500, { ok: false, error: err.message || String(err) });
+    }
+  }
+
+  if (req.url.startsWith("/api/tts/import-model") && req.method === "POST") {
+    try {
+      const parsed = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+      const result = await streamModelUpload(req, parsed.searchParams.get("filename"), TTS_MODELS, "tts");
+      return json(res, 200, { ok: true, message: `Imported ${result.filename}`, model: result });
+    } catch (err) {
+      console.error("  [api] Failed to import TTS model:", err);
+      return json(res, 500, { ok: false, error: err.message });
+    }
+  }
+
+  if (req.url === "/api/tts/delete-model" && req.method === "POST") {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    const filename = path.basename(String(body.filename || ""));
+    const modelPath = path.join(TTS_MODELS, filename);
+    if (!filename || !filename.endsWith(".json") || !pathInside(modelPath, TTS_MODELS)) {
+      return json(res, 400, { ok: false, error: "Invalid filename" });
+    }
+    if (ttsSettings.model === filename) await stopTts();
+    try {
+      fs.unlinkSync(modelPath);
+      return json(res, 200, { ok: true });
+    } catch (err) {
+      return json(res, err.code === "ENOENT" ? 404 : 500, { ok: false, error: err.code === "ENOENT" ? "TTS model not found" : err.message });
+    }
+  }
+
+  if (req.url === "/api/tts/outputs" && req.method === "GET") {
+    return json(res, 200, { ok: true, outputs: listTtsOutputs() });
+  }
+
+  if (req.url === "/api/tts/delete-output" && req.method === "POST") {
+    const body = await readJsonBody(req, res);
+    if (!body) return;
+    const filename = path.basename(String(body.filename || ""));
+    if (!filename || !filename.endsWith(".json")) {
+      return json(res, 400, { ok: false, error: "Invalid filename" });
+    }
+    const jsonPath = path.join(TTS_OUTPUTS, filename);
+    if (!pathInside(jsonPath, TTS_OUTPUTS)) {
+      return json(res, 400, { ok: false, error: "Invalid path" });
+    }
+    try {
+      if (!fs.existsSync(jsonPath)) {
+        return json(res, 404, { ok: false, error: "TTS output metadata not found" });
+      }
+      const metadata = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+      const audioFile = metadata.audioFile ? path.basename(String(metadata.audioFile)) : "";
+      fs.unlinkSync(jsonPath);
+      if (audioFile) {
+        const audioPath = path.join(TTS_OUTPUTS, audioFile);
+        if (pathInside(audioPath, TTS_OUTPUTS) && fs.existsSync(audioPath)) {
+          fs.unlinkSync(audioPath);
+        }
+      }
+      return json(res, 200, { ok: true });
+    } catch (err) {
+      console.error("  [api] Failed to delete TTS output:", err);
       return json(res, 500, { ok: false, error: err.message });
     }
   }
@@ -5307,6 +5823,21 @@ async function getLlmfitRecommendations(useCase = "chat", limit = 10) {
     return;
   }
 
+  if (req.url.startsWith("/tts-outputs/") && req.method === "GET") {
+    const filename = path.basename(decodeURIComponent(req.url.replace(/^\/tts-outputs\//, "").split("?")[0] || ""));
+    const filePath = path.join(TTS_OUTPUTS, filename);
+    if (!filename || !pathInside(filePath, TTS_OUTPUTS) || !fs.existsSync(filePath)) {
+      return json(res, 404, { ok: false, error: "TTS output not found" });
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    fs.readFile(filePath, (err, data) => {
+      if (err) return json(res, 500, { ok: false, error: err.message });
+      res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream", "Access-Control-Allow-Origin": "*" });
+      res.end(data);
+    });
+    return;
+  }
+
   // POST /api/save-output
   if (req.url === "/api/save-output" && req.method === "POST") {
     try {
@@ -5436,6 +5967,7 @@ server.listen(PORT_FRONTEND, "0.0.0.0", () => {
   console.log("   Image API: http://127.0.0.1:" + PORT_BACKEND);
   console.log("   Text API : starts on http://127.0.0.1:" + PREFERRED_LLM_PORT);
   console.log("   Speech   : managed locally, API on frontend port");
+  console.log("   TTS      : Kokoro ONNX managed locally, API on frontend port");
   console.log("  ============================================================");
   console.log("");
 
@@ -5444,5 +5976,5 @@ server.listen(PORT_FRONTEND, "0.0.0.0", () => {
 });
 
 // Graceful shutdown
-process.on("SIGINT",  async () => { await killBackend(); await killOpenVinoWorker(); await killLlm(); await stopSpeech(); process.exit(0); });
-process.on("SIGTERM", async () => { await killBackend(); await killOpenVinoWorker(); await killLlm(); await stopSpeech(); process.exit(0); });
+process.on("SIGINT",  async () => { await killBackend(); await killOpenVinoWorker(); await killLlm(); await stopSpeech(); await stopTts(); process.exit(0); });
+process.on("SIGTERM", async () => { await killBackend(); await killOpenVinoWorker(); await killLlm(); await stopSpeech(); await stopTts(); process.exit(0); });

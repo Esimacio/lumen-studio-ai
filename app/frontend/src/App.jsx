@@ -6,7 +6,8 @@ import ModelManager from "./components/ModelManager";
 import Settings from "./components/Settings";
 import TextChat from "./components/TextChat";
 import SpeechTranscriber from "./components/SpeechTranscriber";
-import { cleanupCandidates, formatBytes, getCleanupCandidates, getDiagnostics, getHardwareSpecs, getHealth, getTelemetry, getBackendOptions, getBackendStatus, listGeneratedOutputs, listSpeechTranscriptions, deleteSpeechTranscription, stopServer } from "./services/api";
+import TextToSpeech from "./components/TextToSpeech";
+import { cleanupCandidates, formatBytes, getCleanupCandidates, getDiagnostics, getHardwareSpecs, getHealth, getTelemetry, getBackendOptions, getBackendStatus, listGeneratedOutputs, listSpeechTranscriptions, deleteSpeechTranscription, listTtsOutputs, deleteTtsOutput, stopServer } from "./services/api";
 import "./App.css";
 
 function App() {
@@ -183,6 +184,29 @@ function App() {
     localStorage.setItem("speechSettings", JSON.stringify(speechSettings));
   }, [speechSettings]);
 
+  const [ttsSettings, setTtsSettings] = useState(() => {
+    const saved = localStorage.getItem("ttsSettings");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return {
+          model: parsed.model || "",
+          voice: parsed.voice || "af_heart",
+          speed: Math.max(0.5, Math.min(2, Number(parsed.speed) || 1)),
+        };
+      } catch (_) {}
+    }
+    return {
+      model: "",
+      voice: "af_heart",
+      speed: 1,
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem("ttsSettings", JSON.stringify(ttsSettings));
+  }, [ttsSettings]);
+
   // Lifted Chat History States
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
@@ -190,6 +214,9 @@ function App() {
   const [speechTranscriptions, setSpeechTranscriptions] = useState([]);
   const [selectedSpeechTranscript, setSelectedSpeechTranscript] = useState(null);
   const [showSpeechHistory, setShowSpeechHistory] = useState(false);
+  const [ttsOutputs, setTtsOutputs] = useState([]);
+  const [selectedTtsOutput, setSelectedTtsOutput] = useState(null);
+  const [showTtsHistory, setShowTtsHistory] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("chat_conversations");
@@ -314,6 +341,49 @@ function App() {
   useEffect(() => {
     refreshSpeechTranscriptions();
   }, [refreshSpeechTranscriptions]);
+
+  const refreshTtsOutputs = useCallback(async () => {
+    try {
+      const list = await listTtsOutputs();
+      setTtsOutputs(list);
+    } catch (err) {
+      console.warn("Could not load TTS outputs:", err);
+      setTtsOutputs([]);
+    }
+  }, []);
+
+  const handleDeleteTtsOutput = useCallback(async (item, e) => {
+    if (e) e.stopPropagation();
+    const itemId = item.filename || item.metadata;
+    if (!itemId) return;
+
+    const ok = await showConfirm({
+      title: "Delete TTS Output",
+      message: `Are you sure you want to delete "${item.displayName || item.audioFile || "this audio"}"? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true
+    });
+    if (!ok) return;
+
+    try {
+      await deleteTtsOutput(itemId);
+      setSelectedTtsOutput((prev) => {
+        if (prev) {
+          const prevId = prev.filename || prev.metadata;
+          if (prevId === itemId) return null;
+        }
+        return prev;
+      });
+      refreshTtsOutputs();
+    } catch (err) {
+      console.error("Failed to delete TTS output:", err);
+      showAlert({ title: "Delete Failed", message: err.message || String(err), danger: true });
+    }
+  }, [showConfirm, showAlert, refreshTtsOutputs]);
+
+  useEffect(() => {
+    refreshTtsOutputs();
+  }, [refreshTtsOutputs]);
 
   // Load hardware specifications on mount
   useEffect(() => {
@@ -565,8 +635,14 @@ function App() {
       showSpeechHistory={showSpeechHistory}
       setShowSpeechHistory={setShowSpeechHistory}
       onDeleteSpeechTranscription={handleDeleteSpeechTranscription}
+      ttsOutputs={ttsOutputs}
+      selectedTtsOutput={selectedTtsOutput}
+      setSelectedTtsOutput={setSelectedTtsOutput}
+      showTtsHistory={showTtsHistory}
+      setShowTtsHistory={setShowTtsHistory}
+      onDeleteTtsOutput={handleDeleteTtsOutput}
     />
-  ), [activeTab, specs, conversations, activeConversationId, showHistory, handleDeleteConversation, speechTranscriptions, selectedSpeechTranscript, showSpeechHistory, handleDeleteSpeechTranscription]);
+  ), [activeTab, specs, conversations, activeConversationId, showHistory, handleDeleteConversation, speechTranscriptions, selectedSpeechTranscript, showSpeechHistory, handleDeleteSpeechTranscription, ttsOutputs, selectedTtsOutput, showTtsHistory, handleDeleteTtsOutput]);
 
   const handleStopServer = useCallback(async () => {
     if (!serverRunning || isStoppingServer) return;
@@ -673,6 +749,17 @@ function App() {
           />
         </div>
 
+        <div style={{ display: activeTab === "tts" ? "flex" : "none", flex: 1, flexDirection: "column", overflow: "hidden" }}>
+          <TextToSpeech
+            showAlert={showAlert}
+            showConfirm={showConfirm}
+            selectedOutput={selectedTtsOutput}
+            onOutputsChanged={refreshTtsOutputs}
+            ttsSettings={ttsSettings}
+            setTtsSettings={setTtsSettings}
+          />
+        </div>
+
         <div style={{ display: activeTab === "settings" ? "flex" : "none", flex: 1, flexDirection: "column", overflow: "hidden" }}>
           <Settings
             constraints={constraints}
@@ -689,6 +776,8 @@ function App() {
             setTextSettings={setTextSettings}
             speechSettings={speechSettings}
             setSpeechSettings={setSpeechSettings}
+            ttsSettings={ttsSettings}
+            setTtsSettings={setTtsSettings}
             health={health}
             cleanupItems={cleanupItems}
             isReadinessBusy={isReadinessBusy}

@@ -28,7 +28,14 @@ import {
   downloadSpeechModel,
   deleteSpeechModel,
   importSpeechModel,
-  getSpeechStatus
+  getSpeechStatus,
+  listTtsModels,
+  startTts,
+  stopTts,
+  downloadTtsModel,
+  deleteTtsModel,
+  importTtsModel,
+  getTtsStatus
 } from "../services/api";
 
 const MODEL_FILTERS = [
@@ -181,6 +188,38 @@ const OPENVINO_MODEL_LIBRARY = [
   },
 ];
 
+const TTS_MODEL_LIBRARY = [
+  {
+    group: "Kokoro Text-to-Speech Models",
+    items: [
+      {
+        id: "kokoro-onnx-q8",
+        name: "Kokoro 82M ONNX Q8",
+        filename: "kokoro-onnx-q8.json",
+        format: "Kokoro ONNX",
+        approxSize: "Model cache on first use",
+        resolution: "24 kHz WAV",
+        notes: "Recommended local TTS model. Good quality and faster startup than full precision on most PCs.",
+        url: "kokoro://install/kokoro-onnx-q8",
+        pageUrl: "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX",
+        recommendedTiers: ["Low", "Mid", "High"],
+      },
+      {
+        id: "kokoro-onnx-fp32",
+        name: "Kokoro 82M ONNX FP32",
+        filename: "kokoro-onnx-fp32.json",
+        format: "Kokoro ONNX",
+        approxSize: "Model cache on first use",
+        resolution: "24 kHz WAV",
+        notes: "Full precision Kokoro ONNX path for quality testing. Uses more memory and disk cache.",
+        url: "kokoro://install/kokoro-onnx-fp32",
+        pageUrl: "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX",
+        recommendedTiers: ["Mid", "High"],
+      },
+    ],
+  },
+];
+
 const COREML_MODEL_LIBRARY = [
   {
     group: "Apple Silicon NPU - CoreML Test",
@@ -227,7 +266,7 @@ function ModelManager({
   specs,
   textSettings,
 }) {
-  const [activeModelType, setActiveModelType] = useState("image"); // "image", "text", or "speech"
+  const [activeModelType, setActiveModelType] = useState("image"); // "image", "text", "speech", or "tts"
   const [localModels, setLocalModels] = useState([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [downloadingModelId, setDownloadingModelId] = useState(null);
@@ -248,6 +287,8 @@ function ModelManager({
   const [llmRunning, setLlmRunning] = useState(false);
   const [activeSpeechModel, setActiveSpeechModel] = useState(null);
   const [speechRunning, setSpeechRunning] = useState(false);
+  const [activeTtsModel, setActiveTtsModel] = useState(null);
+  const [ttsRunning, setTtsRunning] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const [selectedFilters, setSelectedFilters] = useState([]);
   const [huggingFaceModels, setHuggingFaceModels] = useState([]);
@@ -271,13 +312,13 @@ function ModelManager({
     }
   };
 
-  const normalizedLocalModels = activeModelType === "speech"
+  const normalizedLocalModels = activeModelType === "speech" || activeModelType === "tts"
     ? localModels.filter((model) => model.filename)
     : localModels.map(normalizeModel).filter((model) => model.filename);
-  const displayedLocalModels = activeModelType === "speech"
+  const displayedLocalModels = activeModelType === "speech" || activeModelType === "tts"
     ? normalizedLocalModels.filter((model) => model.installed)
     : normalizedLocalModels.filter((model) => !model.isProjector);
-  const allModelNames = activeModelType === "speech"
+  const allModelNames = activeModelType === "speech" || activeModelType === "tts"
     ? displayedLocalModels.map((model) => model.filename)
     : normalizedLocalModels.map((model) => model.filename);
   const modelNames = displayedLocalModels.map((model) => model.filename);
@@ -306,7 +347,7 @@ function ModelManager({
       group: "Recommended Text Models from Hugging Face",
       items: hasHuggingFaceResults ? displayedHuggingFaceModels : TEXT_MODEL_LIBRARY[0].items,
     }];
-  } else {
+  } else if (activeModelType === "speech") {
     visibleModelLibrary = [{
       group: "Whisper Speech Models",
       items: normalizedLocalModels.filter((model) => model.url).map((model) => ({
@@ -317,6 +358,8 @@ function ModelManager({
         recommendedTiers: model.recommended ? ["Low", "Mid", "High"] : [],
       })),
     }];
+  } else {
+    visibleModelLibrary = TTS_MODEL_LIBRARY;
   }
 
   useEffect(() => {
@@ -393,8 +436,11 @@ function ModelManager({
       } else if (activeModelType === "text") {
         const list = await listLlmModels();
         setLocalModels(list.map(normalizeModel).filter((model) => model.filename));
-      } else {
+      } else if (activeModelType === "speech") {
         const list = await listSpeechModels();
+        setLocalModels(list.filter((model) => model.filename));
+      } else {
+        const list = await listTtsModels();
         setLocalModels(list.filter((model) => model.filename));
       }
     } catch (e) {
@@ -421,10 +467,11 @@ function ModelManager({
     let cancelled = false;
     const updateBackendInfo = async () => {
       try {
-        const [sdStatus, llmStatus, speechStatus] = await Promise.all([
+        const [sdStatus, llmStatus, speechStatus, ttsStatus] = await Promise.all([
           getBackendStatus(),
           getLlmStatus(),
-          getSpeechStatus()
+          getSpeechStatus(),
+          getTtsStatus()
         ]);
         if (cancelled) return;
         
@@ -434,6 +481,7 @@ function ModelManager({
           backendDevice: sdStatus.settings?.backendDevice || sdStatus.loading?.device || "",
           llmBackendMode: llmStatus.settings?.backendMode || llmStatus.settings?.backendBinary || "",
           speechBackendMode: speechStatus.settings?.backendMode || speechStatus.backendMode || "",
+          ttsBackendMode: ttsStatus.settings?.backendMode || ttsStatus.backendMode || "",
         });
         
         if (llmStatus.ready) {
@@ -449,6 +497,13 @@ function ModelManager({
         } else {
           setActiveSpeechModel(null);
           setSpeechRunning(false);
+        }
+        if (ttsStatus.ready) {
+          setActiveTtsModel(ttsStatus.settings?.model || null);
+          setTtsRunning(true);
+        } else {
+          setActiveTtsModel(null);
+          setTtsRunning(false);
         }
       } catch (_) {}
     };
@@ -500,8 +555,10 @@ function ModelManager({
         res = await downloadModel(url);
       } else if (activeModelType === "text") {
         res = await downloadLlmModel(url, expectedFilename, companion);
-      } else {
+      } else if (activeModelType === "speech") {
         res = await downloadSpeechModel(url, expectedFilename);
+      } else {
+        res = await downloadTtsModel(url, expectedFilename);
       }
       if (res && res.ok) {
         if (!companion && res.projectorUrl && res.projectorFilename) {
@@ -563,7 +620,7 @@ function ModelManager({
     e.preventDefault();
     if (!downloadUrl.trim()) return;
 
-    let modelName = activeModelType === "image" ? "model.safetensors" : activeModelType === "text" ? "model.gguf" : "model.bin";
+    let modelName = activeModelType === "image" ? "model.safetensors" : activeModelType === "text" ? "model.gguf" : activeModelType === "speech" ? "model.bin" : "model.json";
     try {
       const parsed = new URL(downloadUrl.trim());
       modelName = parsed.pathname.split("/").pop() || modelName;
@@ -587,6 +644,18 @@ function ModelManager({
       });
       if (confirmed) {
         await downloadByUrl(model.url, model.filename);
+      }
+      return;
+    }
+
+    if (activeModelType === "tts") {
+      const confirmed = await showConfirm({
+        title: "Download TTS Model?",
+        message: `Install "${model.name}"? Kokoro model files are cached on first generation.`,
+        confirmLabel: "Install",
+      });
+      if (confirmed) {
+        await downloadByUrl(model.id || model.url, model.filename);
       }
       return;
     }
@@ -734,7 +803,7 @@ function ModelManager({
         setModelLoadProgress(null);
         setLoadingModelId(null);
       }
-    } else {
+    } else if (activeModelType === "speech") {
       setLoadingModelId(modelId);
       setModelLoadProgress({
         progress: 30,
@@ -759,6 +828,38 @@ function ModelManager({
         setServerRunning(false);
       } catch (err) {
         showAlert({ title: "Speech Model Load Failed", message: err.message || String(err), danger: true });
+      } finally {
+        setModelLoadProgress(null);
+        setLoadingModelId(null);
+      }
+    } else {
+      setLoadingModelId(modelId);
+      setModelLoadProgress({
+        progress: 30,
+        phase: "Starting Kokoro ONNX TTS runtime...",
+        speed: "",
+        current: 0,
+        total: 0,
+        model: modelId,
+        backendMode: "",
+        backendBinary: "",
+        device: "",
+      });
+      try {
+        await stopServer();
+        await stopLlm();
+        await stopSpeech();
+        await startTts(modelId);
+        setActiveTtsModel(modelId);
+        setTtsRunning(true);
+        setActiveSpeechModel(null);
+        setSpeechRunning(false);
+        setActiveLlmModel(null);
+        setLlmRunning(false);
+        setActiveModel(null);
+        setServerRunning(false);
+      } catch (err) {
+        showAlert({ title: "TTS Model Load Failed", message: err.message || String(err), danger: true });
       } finally {
         setModelLoadProgress(null);
         setLoadingModelId(null);
@@ -966,13 +1067,26 @@ function ModelManager({
         setIsUnloading(false);
         setUnloadProgress({ progress: 0, phase: "" });
       }
-    } else {
+    } else if (activeModelType === "speech") {
       setIsUnloading(true);
       setUnloadProgress({ progress: 50, phase: "Stopping whisper.cpp speech runtime..." });
       try {
         await stopSpeech();
         setActiveSpeechModel(null);
         setSpeechRunning(false);
+      } catch (e) {
+        showAlert({ title: "Unload Failed", message: e.message || String(e), danger: true });
+      } finally {
+        setIsUnloading(false);
+        setUnloadProgress({ progress: 0, phase: "" });
+      }
+    } else {
+      setIsUnloading(true);
+      setUnloadProgress({ progress: 50, phase: "Stopping Kokoro TTS runtime..." });
+      try {
+        await stopTts();
+        setActiveTtsModel(null);
+        setTtsRunning(false);
       } catch (e) {
         showAlert({ title: "Unload Failed", message: e.message || String(e), danger: true });
       } finally {
@@ -1000,9 +1114,14 @@ function ModelManager({
           if (activeLlmModel === filename) {
             await handleUnloadModel();
           }
-        } else {
+        } else if (activeModelType === "speech") {
           await deleteSpeechModel(filename);
           if (activeSpeechModel === filename) {
+            await handleUnloadModel();
+          }
+        } else {
+          await deleteTtsModel(filename);
+          if (activeTtsModel === filename) {
             await handleUnloadModel();
           }
         }
@@ -1046,8 +1165,18 @@ function ModelManager({
             status: progressData.status
           });
         }, controller.signal);
-      } else {
+      } else if (activeModelType === "speech") {
         await importSpeechModel(sourcePath, (progressData) => {
+          setImportProgress(Math.round(progressData.progress));
+          setImportInfo({
+            filename: progressData.filename,
+            speed: progressData.speed_mb_s.toFixed(1),
+            eta: Math.round(progressData.eta_secs),
+            status: progressData.status
+          });
+        }, controller.signal);
+      } else {
+        await importTtsModel(sourcePath, (progressData) => {
           setImportProgress(Math.round(progressData.progress));
           setImportInfo({
             filename: progressData.filename,
@@ -1111,6 +1240,13 @@ function ModelManager({
           style={{ height: "40px", padding: "0 20px" }}
         >
           Speech Models (Whisper)
+        </button>
+        <button
+          className={`m3-btn ${activeModelType === "tts" ? "m3-btn-filled" : "m3-btn-outlined"}`}
+          onClick={() => setActiveModelType("tts")}
+          style={{ height: "40px", padding: "0 20px" }}
+        >
+          TTS Models (Kokoro)
         </button>
       </div>
 
@@ -1190,6 +1326,26 @@ function ModelManager({
         </div>
       )}
 
+      {activeModelType === "tts" && activeTtsModel && (
+        <div className="m3-card" style={{ borderLeft: "4px solid var(--md-sys-color-primary)", background: "var(--md-sys-color-primary-container)", color: "var(--md-sys-color-on-primary-container)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <h4 style={{ fontWeight: 700 }}>Active TTS Model: {activeTtsModel}</h4>
+              <p style={{ fontSize: "0.85rem", marginTop: "2px", opacity: 0.9 }}>
+                The local Kokoro ONNX runtime is ready. Text to Speech can generate WAV narration.
+              </p>
+              {backendInfo.ttsBackendMode && (
+                <div style={{ display: "flex", gap: "8px", marginTop: "8px", flexWrap: "wrap" }}>
+                  <span className="status-chip" style={{ cursor: "default", background: "rgba(255,255,255,0.15)", color: "inherit", border: "1px solid rgba(255,255,255,0.2)" }}>
+                    <span>{backendInfo.ttsBackendMode}</span>
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Loading Progress Bar */}
       {modelLoadProgress && (
         <div className="m3-card" style={{ borderLeft: "4px solid var(--md-sys-color-primary)", marginTop: "24px" }}>
@@ -1241,7 +1397,7 @@ function ModelManager({
       <div className="m3-card" style={{ marginTop: "24px" }}>
         <h3 className="m3-card-title">
           <Database size={18} style={{ color: "var(--md-sys-color-primary)" }} />
-          Local {activeModelType === "image" ? "Image" : activeModelType === "text" ? "Text" : "Speech"} Models ({displayedLocalModels.length})
+          Local {activeModelType === "image" ? "Image" : activeModelType === "text" ? "Text" : activeModelType === "speech" ? "Speech" : "TTS"} Models ({displayedLocalModels.length})
         </h3>
         
         {isLoadingModels ? (
@@ -1255,13 +1411,15 @@ function ModelManager({
               ? "No image models detected in app/models/. Download from the library below or import a file."
               : activeModelType === "text"
               ? "No text models detected in app/llm-models/. Download from the library below or import a file."
-              : "No speech models detected in app/speech-models/. Download from the library below or import a .bin file."}
+              : activeModelType === "speech"
+              ? "No speech models detected in app/speech-models/. Download from the library below or import a .bin file."
+              : "No TTS models detected in app/tts-models/. Install Kokoro from the library below or import a .json manifest."}
           </p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {displayedLocalModels.map((model) => {
               const filename = model.filename;
-              const isActive = activeModelType === "image" ? activeModel === filename : activeModelType === "text" ? activeLlmModel === filename : activeSpeechModel === filename;
+              const isActive = activeModelType === "image" ? activeModel === filename : activeModelType === "text" ? activeLlmModel === filename : activeModelType === "speech" ? activeSpeechModel === filename : activeTtsModel === filename;
               
               return (
                 <div 
@@ -1284,7 +1442,9 @@ function ModelManager({
                         ? (model.backendType === "openvino-npu" ? "OpenVINO NPU Model" : model.format || "Local Weights File")
                         : activeModelType === "text"
                         ? "llama.cpp GGUF Model"
-                        : `${model.language || "Whisper"} Model`
+                        : activeModelType === "speech"
+                        ? `${model.language || "Whisper"} Model`
+                        : "Kokoro ONNX Model"
                       } • {model.size || formatBytes(model.sizeBytes)}
                     </span>
                   </div>
@@ -1332,7 +1492,7 @@ function ModelManager({
       <div className="workspace-title-section" style={{ marginTop: "32px", marginBottom: "16px" }}>
         <h3 className="m3-card-title">
           <Library size={20} style={{ color: "var(--md-sys-color-primary)" }} />
-          {activeModelType === "text" ? "Hugging Face Model Library" : activeModelType === "speech" ? "Speech Model Library" : "Model Library"}
+          {activeModelType === "text" ? "Hugging Face Model Library" : activeModelType === "speech" ? "Speech Model Library" : activeModelType === "tts" ? "TTS Model Library" : "Model Library"}
         </h3>
       </div>
 
@@ -1541,14 +1701,14 @@ function ModelManager({
           <input
             type="file"
             style={{ display: "none" }}
-            accept={activeModelType === "image" ? ".safetensors,.ckpt" : activeModelType === "text" ? ".gguf" : ".bin"}
+            accept={activeModelType === "image" ? ".safetensors,.ckpt" : activeModelType === "text" ? ".gguf" : activeModelType === "speech" ? ".bin" : ".json"}
             onChange={handleImportFile}
             disabled={importProgress !== null}
           />
           <FolderOpen className="import-icon" />
           <span style={{ fontWeight: 600 }}>Choose weights file</span>
           <span style={{ fontSize: "0.75rem", color: "var(--md-sys-color-outline)", textAlign: "center" }}>
-            Select {activeModelType === "image" ? "`.safetensors` or `.ckpt` weights." : activeModelType === "text" ? "`.gguf` weights." : "`whisper.cpp .bin` weights."}
+            Select {activeModelType === "image" ? "`.safetensors` or `.ckpt` weights." : activeModelType === "text" ? "`.gguf` weights." : activeModelType === "speech" ? "`whisper.cpp .bin` weights." : "`Kokoro .json` manifest."}
           </span>
         </label>
 
@@ -1558,7 +1718,7 @@ function ModelManager({
             Download Model from URL
           </h4>
           <p style={{ fontSize: "0.75rem", color: "var(--md-sys-color-outline)", marginBottom: "12px" }}>
-            Download any {activeModelType === "image" ? "Safetensors" : activeModelType === "text" ? "GGUF" : "Whisper .bin"} model from Hugging Face directly to your models folder.
+            Download any {activeModelType === "image" ? "Safetensors" : activeModelType === "text" ? "GGUF" : activeModelType === "speech" ? "Whisper .bin" : "Kokoro manifest"} model from Hugging Face directly to your models folder.
           </p>
           {isUrlDownloading ? (
             <div className="model-progress-section" style={{ marginTop: "0px" }}>

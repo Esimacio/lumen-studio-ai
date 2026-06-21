@@ -158,7 +158,7 @@ function Expand-WithProgress {
 # ══════════════════════════════════════════════════════════════════════════════
 Print-Header
 
-$steps = 6
+$steps = 7
 
 # ── Step 1: Portable Node.js ──────────────────────────────────────────────────
 Print-Step 1 $steps "Setting up portable Node.js (app/tools/node-win/)"
@@ -434,7 +434,14 @@ if (-not $?) {
     Read-Host; exit 1
 }
 
-Print-Step 5 $steps "Installing frontend dependencies (app/frontend/)"
+Print-Step 5 $steps "Setting up Kokoro ONNX text-to-speech runtime"
+& (Join-Path $scriptDir "setup-tts.ps1")
+if (-not $?) {
+    Print-Fail "Kokoro TTS setup failed."
+    Read-Host; exit 1
+}
+
+Print-Step 6 $steps "Installing frontend dependencies (app/frontend/)"
 Write-Host ""
 
 if (-not (Test-Path $npmCmd)) {
@@ -488,7 +495,7 @@ try {
     Print-OK "Dependencies installed!"
 
     # ── Step 4: Build frontend ────────────────────────────────────────────────
-    Print-Step 6 $steps "Building frontend -> app/dist/"
+    Print-Step 7 $steps "Building frontend -> app/dist/"
     Write-Host ""
 
     & $npmCmd run build 2>&1

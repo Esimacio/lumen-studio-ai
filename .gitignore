@@ -3,11 +3,13 @@ app/models/
 app/openvino-models/
 app/llm-models/
 app/speech-models/
+app/tts-models/
 
 # Downloaded portable runtimes/backends
 app/backend/
 app/llm-backend/
 app/speech-backend/
+app/tts-runtime/
 app/tools/
 
 # Generated files
@@ -15,6 +17,8 @@ app/config/
 app/dist/
 app/outputs/
 app/transcriptions/
+app/tts-outputs/
+app/tts-cache/
 
 # Dependencies and platform-specific copies
 **/node_modules/

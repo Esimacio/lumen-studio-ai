@@ -207,6 +207,8 @@ function Settings({
   setTextSettings,
   speechSettings,
   setSpeechSettings,
+  ttsSettings,
+  setTtsSettings,
   showAlert = async ({ message }) => window.alert(message),
   showConfirm = async ({ message }) => window.confirm(message),
   health,
@@ -230,6 +232,7 @@ function Settings({
       image: localStorage.getItem("settings_section_image") === "true",
       text: localStorage.getItem("settings_section_text") === "true",
       speech: localStorage.getItem("settings_section_speech") === "true",
+      tts: localStorage.getItem("settings_section_tts") === "true",
     };
   });
 
@@ -292,6 +295,13 @@ function Settings({
 
   const updateSpeechSetting = (key, value) => {
     setSpeechSettings((prev) => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
+  const updateTtsSetting = (key, value) => {
+    setTtsSettings((prev) => ({
       ...prev,
       [key]: value
     }));
@@ -1037,6 +1047,93 @@ function Settings({
   };
 
   // ─── Appearance Settings ───
+  const renderTtsSettings = () => {
+    const TTS_VOICES = [
+      { value: "af_heart", label: "Heart - Female, US English" },
+      { value: "af_bella", label: "Bella - Female, US English" },
+      { value: "af_nicole", label: "Nicole - Female, US English" },
+      { value: "af_sarah", label: "Sarah - Female, US English" },
+      { value: "am_michael", label: "Michael - Male, US English" },
+      { value: "am_fenrir", label: "Fenrir - Male, US English" },
+      { value: "bf_emma", label: "Emma - Female, UK English" },
+      { value: "bm_george", label: "George - Male, UK English" },
+    ];
+
+    return (
+      <>
+        <SectionHeader
+          icon={Volume2}
+          title="Text to Speech"
+          count={2}
+          color="#8b5cf6"
+          isExpanded={expandedSections.tts}
+          onToggle={() => toggleSection("tts")}
+        />
+
+        {expandedSections.tts && (
+          <div className="settings-expanded-content">
+            <div className="settings-two-column">
+              <div className="settings-column">
+                <div className="settings-subsection">
+                  <div className="settings-subsection-title">
+                    <Volume2 size={16} />
+                    Voice Defaults
+                  </div>
+                  <div className="m3-field-group">
+                    <div className="m3-text-field">
+                      <label className="m3-text-field-label">Default Voice</label>
+                      <select
+                        className="m3-input"
+                        value={ttsSettings?.voice || "af_heart"}
+                        onChange={(e) => updateTtsSetting("voice", e.target.value)}
+                      >
+                        {TTS_VOICES.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="settings-option-desc" style={{ marginTop: "4px", display: "block" }}>
+                        Default Kokoro voice for generated WAV files.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-column">
+                <div className="settings-subsection">
+                  <div className="settings-subsection-title">
+                    <Gauge size={16} />
+                    Speech Timing
+                  </div>
+                  <div className="m3-slider-group">
+                    <div className="m3-slider-header">
+                      <span className="m3-slider-label">Speed</span>
+                      <span className="settings-value-badge">{(ttsSettings?.speed || 1).toFixed(2)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      className="m3-slider"
+                      value={ttsSettings?.speed || 1}
+                      onChange={(e) => updateTtsSetting("speed", parseFloat(e.target.value))}
+                      min="0.5"
+                      max="2"
+                      step="0.05"
+                    />
+                    <span className="settings-option-desc">
+                      1.00x is natural speed. Lower values are slower, higher values are faster.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
   const renderAppearanceSettings = () => (
     <>
       <SectionHeader 
@@ -1144,6 +1241,9 @@ function Settings({
 
       {/* Speech Settings Section */}
       {renderSpeechSettings()}
+
+      {/* Text to Speech Settings Section */}
+      {renderTtsSettings()}
     </div>
   );
 }
