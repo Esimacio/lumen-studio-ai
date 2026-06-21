@@ -347,6 +347,16 @@ export async function startLlm(model, options = {}) {
       contextSize: options.contextSize,
       gpuLayers: options.gpuLayers,
       enableThinking: options.enableThinking,
+      flashAttn: options.flashAttn,
+      cacheTypeK: options.cacheTypeK,
+      cacheTypeV: options.cacheTypeV,
+      mlock: options.mlock,
+      mmap: options.mmap,
+      cachePrompt: options.cachePrompt,
+      defragThold: options.defragThold,
+      batchSize: options.batchSize,
+      ubatchSize: options.ubatchSize,
+      performanceProfile: options.performanceProfile,
     }),
   });
   return await readJsonResponse(res, "The local server returned an invalid text backend response.");
@@ -423,6 +433,7 @@ export async function streamChatWithLlm(messages, options = {}, onToken = () => 
   let reasoningContent = "";
   let usage = null;
   let timings = null;
+  let finishReason = null;
 
   const consumeEvent = (eventText) => {
     try {
@@ -435,8 +446,10 @@ export async function streamChatWithLlm(messages, options = {}, onToken = () => 
       if (!data || data === "[DONE]") return data === "[DONE]";
 
       const parsed = JSON.parse(data);
-      const token = parsed.choices?.[0]?.delta?.content || "";
-      const reasoningToken = parsed.choices?.[0]?.delta?.reasoning_content || "";
+      const choice = parsed.choices?.[0];
+      const token = choice?.delta?.content || "";
+      const reasoningToken = choice?.delta?.reasoning_content || "";
+      if (choice?.finish_reason) finishReason = choice.finish_reason;
 
       if (token || reasoningToken) {
         content += token;
@@ -470,7 +483,7 @@ export async function streamChatWithLlm(messages, options = {}, onToken = () => 
 
   if (!finished && buffer.trim()) consumeEvent(buffer);
   if (!content && !reasoningContent) throw new Error("The text model returned an empty streamed response.");
-  return { content, reasoningContent, usage, timings };
+  return { content, reasoningContent, usage, timings, finishReason };
 }
 
 export async function downloadLlmModel(url, filename = null) {

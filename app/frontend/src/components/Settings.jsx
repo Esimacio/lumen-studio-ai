@@ -5,7 +5,7 @@ import {
   Monitor, HardDrive, MemoryStick, Thermometer, Hash, Layers,
   ChevronRight, Box, Wand2, Lightbulb, RotateCcw, Check, Palette
 } from "lucide-react";
-import { stopServer, formatBytes, getLlmStatus } from "../services/api";
+import { stopServer, formatBytes, getLlmStatus, startLlm, stopLlm } from "../services/api";
 import { THEMES } from "../themes";
 
 const ASPECT_RATIOS = [
@@ -228,6 +228,56 @@ function Settings({
       ...prev,
       [key]: value
     }));
+  };
+
+  const buildTextStartOptions = (settings) => ({
+    threads: settings?.threads || specs?.cpu_cores_physical || 4,
+    contextSize: settings?.contextSize || 4096,
+    gpuLayers: settings?.gpuLayers ?? -1,
+    enableThinking: settings?.enableThinking !== false,
+    flashAttn: settings?.flashAttn,
+    cacheTypeK: settings?.cacheTypeK,
+    cacheTypeV: settings?.cacheTypeV,
+    mlock: settings?.mlock,
+    mmap: settings?.mmap,
+    cachePrompt: settings?.cachePrompt,
+    defragThold: settings?.defragThold,
+    batchSize: settings?.batchSize,
+    ubatchSize: settings?.ubatchSize,
+    performanceProfile: settings?.performanceProfile,
+  });
+
+  const handleThinkingToggle = async (enabled) => {
+    const nextSettings = { ...textSettings, enableThinking: enabled };
+
+    let status = null;
+    try {
+      status = await getLlmStatus();
+    } catch (_) {}
+    if (!status?.ready || !status?.settings?.model) {
+      setTextSettings(nextSettings);
+      return;
+    }
+
+    const reload = await showConfirm({
+      title: enabled ? "Reload With DeepThink?" : "Reload Without DeepThink?",
+      message: "Changing DeepThink requires reloading the text model before it affects new replies. Reload now, or skip and keep the currently loaded model as-is?",
+      confirmLabel: "Reload",
+      cancelLabel: "Skip",
+    });
+    if (!reload) return;
+
+    try {
+      setTextSettings(nextSettings);
+      await stopLlm();
+      await startLlm(status.settings.model, buildTextStartOptions(nextSettings));
+    } catch (err) {
+      await showAlert({
+        title: "Reload Failed",
+        message: err.message || String(err),
+        danger: true,
+      });
+    }
   };
 
   const handleAspectRatioChange = (ratio, sizeType) => {
@@ -634,6 +684,22 @@ function Settings({
 
               <div className="m3-slider-group">
                 <div className="m3-slider-header">
+                  <span className="m3-slider-label">Max Response Tokens</span>
+                  <span className="settings-value-badge">{textSettings.maxTokens || 384}</span>
+                </div>
+                <input
+                  type="range"
+                  className="m3-slider"
+                  value={textSettings.maxTokens || 384}
+                  onChange={(e) => updateTextSetting("maxTokens", parseInt(e.target.value))}
+                  min="64"
+                  max="2048"
+                  step="64"
+                />
+              </div>
+
+              <div className="m3-slider-group">
+                <div className="m3-slider-header">
                   <span className="m3-slider-label">Min P</span>
                   <span className="settings-value-badge">{textSettings.minP}</span>
                 </div>
@@ -787,7 +853,7 @@ function Settings({
             <div className="m3-field-group">
               <PremiumToggle
                 checked={textSettings.enableThinking !== false}
-                onChange={(v) => updateTextSetting("enableThinking", v)}
+                onChange={handleThinkingToggle}
                 label="DeepThink"
                 description={supportsThinking
                   ? "Show model's reasoning process"

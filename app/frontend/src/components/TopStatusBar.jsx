@@ -16,9 +16,11 @@ function TopStatusBar({ telemetry, serverRunning, activeModel, onStopServer, isS
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const formatGb = (value) => {
+  const formatGb = (value, { allowZero = false } = {}) => {
     const number = Number(value);
-    return Number.isFinite(number) && number > 0 ? number.toFixed(number >= 10 ? 0 : 1) : "--";
+    if (!Number.isFinite(number) || number < 0) return "--";
+    if (number === 0 && !allowZero) return "--";
+    return number.toFixed(number >= 10 ? 0 : 1);
   };
 
   const getStatusText = () => {
@@ -128,7 +130,7 @@ function TopStatusBar({ telemetry, serverRunning, activeModel, onStopServer, isS
         {telemetry.vram_total_gb > 0 && (
           <div className="telemetry-chip" title={`${telemetry.gpu_name} VRAM`}>
             <Database className="telemetry-chip-icon" style={{ color: "var(--md-sys-color-tertiary)" }} />
-            <span>VRAM: {formatGb(telemetry.vram_used_gb)} / {formatGb(telemetry.vram_total_gb)} GB</span>
+            <span>VRAM: {formatGb(telemetry.vram_used_gb, { allowZero: true })} / {formatGb(telemetry.vram_total_gb)} GB</span>
           </div>
         )}
       </div>

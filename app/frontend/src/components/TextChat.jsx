@@ -143,6 +143,13 @@ function TextChat({
     completion_tokens: 0,
     total_tokens: 0
   });
+
+  const estimateTokens = (text) => {
+    const value = String(text || "").trim();
+    if (!value) return 0;
+    const wordCount = value.split(/\s+/).filter(Boolean).length;
+    return Math.max(wordCount, Math.ceil(value.length / 4));
+  };
   
   const bottomRef = useRef(null);
   const completedDownloadRef = useRef("");
@@ -254,6 +261,53 @@ function TextChat({
     prevContextSizeRef.current = currentContextSize;
   }, [textSettings?.gpuLayers, textSettings?.threads, textSettings?.contextSize]);
 
+  const buildTextStartOptions = (settings) => ({
+    threads: settings?.threads || specs?.cpu_cores_physical || 4,
+    contextSize: settings?.contextSize || 4096,
+    gpuLayers: settings?.gpuLayers ?? -1,
+    enableThinking: settings?.enableThinking !== false,
+    flashAttn: settings?.flashAttn,
+    cacheTypeK: settings?.cacheTypeK,
+    cacheTypeV: settings?.cacheTypeV,
+    mlock: settings?.mlock,
+    mmap: settings?.mmap,
+    cachePrompt: settings?.cachePrompt,
+    defragThold: settings?.defragThold,
+    batchSize: settings?.batchSize,
+    ubatchSize: settings?.ubatchSize,
+    performanceProfile: settings?.performanceProfile,
+  });
+
+  const handleThinkingToggle = async () => {
+    const enabled = textSettings.enableThinking === false;
+    const nextSettings = { ...textSettings, enableThinking: enabled };
+
+    if (!status.ready || !status.settings?.model) {
+      setTextSettings(nextSettings);
+      return;
+    }
+
+    const reload = await showConfirm({
+      title: enabled ? "Reload With DeepThink?" : "Reload Without DeepThink?",
+      message: "Changing DeepThink requires reloading the text model before it affects new replies. Reload now, or skip and keep the currently loaded model as-is?",
+      confirmLabel: "Reload",
+      cancelLabel: "Skip",
+    });
+    if (!reload) return;
+
+    setIsBusy(true);
+    try {
+      setTextSettings(nextSettings);
+      await stopLlm();
+      const result = await startLlm(status.settings.model, buildTextStartOptions(nextSettings));
+      setStatus({ ...status, ...result, ready: true, running: true, settings: result.settings });
+    } catch (err) {
+      showAlert({ title: "Text Model Reload Failed", message: err.message || String(err), danger: true });
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   useEffect(() => {
     if (!supportsVision) {
       setAttachments((current) => current.filter((attachment) => attachment.type !== "image"));
@@ -274,7 +328,7 @@ function TextChat({
           const text = Array.isArray(m.content)
             ? m.content.map(c => c.text || "").join(" ")
             : (m.content || "");
-          return sum + text.split(/\s+/).length;
+          return sum + estimateTokens(text) + estimateTokens(m.reasoning || "");
         }, 0);
         setTokenUsage({
           prompt_tokens: Math.round(total * 0.7),
@@ -386,6 +440,16 @@ function TextChat({
         contextSize: textSettings?.contextSize || 4096,
         gpuLayers: textSettings?.gpuLayers ?? -1,
         enableThinking: textSettings?.enableThinking !== false,
+        flashAttn: textSettings?.flashAttn,
+        cacheTypeK: textSettings?.cacheTypeK,
+        cacheTypeV: textSettings?.cacheTypeV,
+        mlock: textSettings?.mlock,
+        mmap: textSettings?.mmap,
+        cachePrompt: textSettings?.cachePrompt,
+        defragThold: textSettings?.defragThold,
+        batchSize: textSettings?.batchSize,
+        ubatchSize: textSettings?.ubatchSize,
+        performanceProfile: textSettings?.performanceProfile,
       });
       setStatus({ ...status, ...result, ready: true, running: true, settings: result.settings });
       setMessages([]);
@@ -478,6 +542,17 @@ function TextChat({
         ...(systemPrompt.trim() ? [{ role: "system", content: systemPrompt.trim() }] : []),
         ...nextMessages,
       ];
+      const promptTokenEstimate = requestMessages.reduce((sum, message) => {
+        const messageText = Array.isArray(message.content)
+          ? message.content.map((item) => item.text || "").join(" ")
+          : (message.content || "");
+        return sum + estimateTokens(messageText);
+      }, 0);
+      setTokenUsage({
+        prompt_tokens: promptTokenEstimate,
+        completion_tokens: 0,
+        total_tokens: promptTokenEstimate,
+      });
 
       let assistantText = "";
       let assistantReasoning = "";
@@ -487,14 +562,20 @@ function TextChat({
       let thinkingEndedAt = null;
       let thinkingDuration = 0;
 
+      const baseMaxTokens = textSettings?.maxTokens || 384;
+      const effectiveMaxTokens = textSettings?.enableThinking !== false
+        ? Math.max(baseMaxTokens, 1024)
+        : baseMaxTokens;
+
       const response = await streamChatWithLlm(requestMessages, {
         temperature: textSettings?.temperature || 0.7,
-        maxTokens: textSettings?.maxTokens || 1024,
+        maxTokens: effectiveMaxTokens,
         topP: textSettings?.topP,
         topK: textSettings?.topK,
         minP: textSettings?.minP,
         repeatPenalty: textSettings?.repeatPenalty,
         seed: textSettings?.seed,
+        enableThinking: textSettings?.enableThinking !== false,
         signal: controller.signal,
       }, (_token, fullText, _reasoningToken, fullReasoning) => {
         const now = performance.now();
@@ -530,7 +611,6 @@ function TextChat({
           tokensPerSecond: streamedTokens / generationSeconds,
           seconds: (now - requestStartedAt) / 1000,
         };
-
         // rAF batching: accumulate updates and flush once per frame (~16ms)
         // This reduces React re-renders from N per token to ~60/sec
         tokenBufferRef.current = {
@@ -583,6 +663,8 @@ function TextChat({
         tokens: exactTokens,
         tokensPerSecond: exactTokensPerSecond,
         seconds: exactSeconds,
+        finishReason: response.finishReason || null,
+        truncated: response.finishReason === "length",
       };
       
       const processed = processMessageContent(assistantText, response.reasoningContent || assistantReasoning, textSettings?.enableThinking !== false);
@@ -595,7 +677,23 @@ function TextChat({
       }];
       setMessages(finalMessages);
       saveConversationState(convId, finalMessages, selectedModel);
-      if (response.usage) setTokenUsage(response.usage);
+      const finalCompletionEstimate = Math.max(
+        exactTokens,
+        estimateTokens(processed.content) + estimateTokens(processed.reasoning)
+      );
+      const finalUsageEstimate = {
+        prompt_tokens: promptTokenEstimate,
+        completion_tokens: finalCompletionEstimate,
+        total_tokens: promptTokenEstimate + finalCompletionEstimate,
+      };
+      setTokenUsage(response.usage
+        ? {
+            prompt_tokens: Math.max(Number(response.usage.prompt_tokens) || 0, finalUsageEstimate.prompt_tokens),
+            completion_tokens: Math.max(Number(response.usage.completion_tokens) || 0, finalUsageEstimate.completion_tokens),
+            total_tokens: Math.max(Number(response.usage.total_tokens) || 0, finalUsageEstimate.total_tokens),
+          }
+        : finalUsageEstimate
+      );
       
       // Clean up attached files on success
       setAttachments([]);
@@ -845,7 +943,13 @@ function TextChat({
 
                       {/* Generation stats pill */}
                       {message.role === "assistant" && message.generationStats && !message.error && (
-                        <div className={`chat-generation-stats ${message.generationStats.status}`}>
+                        <>
+                          {message.generationStats.truncated && (
+                            <div className="chat-generation-warning">
+                              Response reached the token limit. Increase Max Response Tokens or ask "continue".
+                            </div>
+                          )}
+                          <div className={`chat-generation-stats ${message.generationStats.status}`}>
                           {message.generationStats.status === "starting" ? (
                             <><LoaderCircle size={11} className="progress-spinner" /> Waiting for first token...</>
                           ) : message.generationStats.status === "streaming" ? (
@@ -853,7 +957,8 @@ function TextChat({
                           ) : (
                             <>{message.generationStats.tokens} tokens <span style={{ opacity: 0.5 }}>•</span> {formatGenerationTime(message.generationStats.seconds)}</>
                           )}
-                        </div>
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
@@ -932,13 +1037,7 @@ function TextChat({
               {status.ready && supportsThinking && (
                 <button
                   className={`chat-composer-deepthink-btn ${textSettings.enableThinking !== false ? "active" : ""}`}
-                  onClick={() => {
-                    const newVal = textSettings.enableThinking === false;
-                    setTextSettings(prev => ({
-                      ...prev,
-                      enableThinking: newVal
-                    }));
-                  }}
+                  onClick={handleThinkingToggle}
                   title={textSettings.enableThinking !== false ? "Disable DeepThink reasoning" : "Enable DeepThink reasoning"}
                   style={{
                     display: "flex",

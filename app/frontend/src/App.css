@@ -784,6 +784,18 @@ body {
 }
 
 /* ─── Generation Stats ────────────────────────────────────────── */
+.chat-generation-warning {
+  margin-top: 4px;
+  padding: 7px 10px;
+  border-radius: var(--md-shape-corner-small);
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-warning, #f59e0b) 35%, transparent);
+  background: color-mix(in srgb, var(--md-sys-color-warning, #f59e0b) 10%, transparent);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  max-width: min(720px, 84vw);
+}
+
 .chat-generation-stats {
   display: inline-flex;
   align-items: center;

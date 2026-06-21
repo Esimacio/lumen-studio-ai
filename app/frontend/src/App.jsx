@@ -120,8 +120,9 @@ function App() {
       try {
         const parsed = JSON.parse(saved);
         return {
-          enableThinking: true,
-          ...parsed
+          ...parsed,
+          enableThinking: parsed.enableThinking === true,
+          maxTokens: parsed.maxTokens || 384,
         };
       } catch (_) {}
     }
@@ -130,10 +131,10 @@ function App() {
       temperature: 0.7,
       systemPrompt: "You are a helpful local AI assistant.",
       threads: Math.max(4, Math.min(16, (navigator.hardwareConcurrency || 4) - 2)),
-      enableThinking: true,
+      enableThinking: false,
       // New performance settings
       gpuLayers: -1,
-      maxTokens: 1024,
+      maxTokens: 384,
       topP: 0.95,
       topK: 40,
       minP: 0.05,
@@ -147,6 +148,8 @@ function App() {
       mmap: true,
       cachePrompt: true,
       defragThold: 0.1,
+      batchSize: 512,
+      ubatchSize: 512,
     };
   });
 

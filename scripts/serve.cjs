@@ -9,7 +9,7 @@ const fs       = require("fs");
 const net      = require("net");
 const os       = require("os");
 const path     = require("path");
-const { spawn, spawnSync, execSync, exec } = require("child_process");
+const { spawn, spawnSync, execSync, exec, execFile } = require("child_process");
 
 // HTTP keep-alive agent for llama-server (eliminates TCP handshake per request)
 const llmHttpAgent = new http.Agent({
@@ -697,6 +697,32 @@ function chooseAutoLayers(modelFilename, freeVramBytes, cacheTypeK = "q8_0", cac
   return Math.max(0, maxLayers);
 }
 
+function getGgufModelSizeGb(modelFilename) {
+  try {
+    const modelPath = path.join(LLM_MODELS, modelFilename);
+    if (fs.existsSync(modelPath)) {
+      return fs.statSync(modelPath).size / (1024 * 1024 * 1024);
+    }
+  } catch (_) {}
+  return 4;
+}
+
+function getStableSyclGpuLayers(modelFilename, requestedLayers) {
+  if (process.env.LOCALAI_LLM_ALLOW_FULL_SYCL === "1") return requestedLayers;
+  if (requestedLayers !== -1) return requestedLayers;
+
+  const syclGpu = detectLlamaSyclGpu();
+  const vramGb = syclGpu?.free_vram_gb || syclGpu?.vram_gb || 0;
+  const modelSizeGb = getGgufModelSizeGb(modelFilename);
+  if (vramGb > 0 && vramGb <= 8.5 && modelSizeGb >= 2.5) {
+    return 0;
+  }
+  if (vramGb > 0 && vramGb <= 12 && modelSizeGb >= 5) {
+    return 0;
+  }
+  return requestedLayers;
+}
+
 let nvidiaSmiCmd = "nvidia-smi";
 let hasNvidiaSmi = null;
 
@@ -766,6 +792,77 @@ pollNvidiaVram(true);
 
 function getNvidiaVram() {
   return cachedVramInfo;
+}
+
+let cachedLlamaVramInfo = null;
+let isPollingLlamaVram = false;
+let lastLlamaVramPollTime = 0;
+
+function parseLlamaDeviceMemory(output) {
+  const devices = [];
+  const devicePattern = /(CUDA|Vulkan|SYCL)\d+\s*:\s*(.+?)\s+\(([\d.]+)\s+MiB(?:,\s*([\d.]+)\s+MiB free)?\)/gi;
+  let match;
+  while ((match = devicePattern.exec(output || "")) !== null) {
+    const totalMiB = Number(match[3]);
+    const freeMiB = match[4] ? Number(match[4]) : NaN;
+    if (!Number.isFinite(totalMiB) || totalMiB <= 0) continue;
+
+    const usedMiB = Number.isFinite(freeMiB) ? Math.max(0, totalMiB - freeMiB) : 0;
+    devices.push({
+      gpu_name: match[2].trim(),
+      vram_used_gb: Math.round((usedMiB / 1024) * 100) / 100,
+      vram_total_gb: Math.round((totalMiB / 1024) * 100) / 100,
+    });
+  }
+  return devices.sort((a, b) => b.vram_total_gb - a.vram_total_gb)[0] || null;
+}
+
+function getLlamaTelemetryBackendPath() {
+  if (osPlatform === "win32") {
+    if (fs.existsSync(LLM_BACKEND_PATHS.winVulkan)) return LLM_BACKEND_PATHS.winVulkan;
+    if (fs.existsSync(LLM_BACKEND_PATHS.winSycl)) return LLM_BACKEND_PATHS.winSycl;
+    if (fs.existsSync(LLM_BACKEND_PATHS.winCuda)) return LLM_BACKEND_PATHS.winCuda;
+  } else if (osPlatform === "linux") {
+    if (fs.existsSync(LLM_BACKEND_PATHS.linuxVulkan)) return LLM_BACKEND_PATHS.linuxVulkan;
+    if (fs.existsSync(LLM_BACKEND_PATHS.linuxSycl)) return LLM_BACKEND_PATHS.linuxSycl;
+    if (fs.existsSync(LLM_BACKEND_PATHS.linuxCuda)) return LLM_BACKEND_PATHS.linuxCuda;
+  }
+  return null;
+}
+
+function pollLlamaVram(force = false) {
+  if (isPollingLlamaVram) return;
+
+  const now = Date.now();
+  if (!force && now - lastLlamaVramPollTime < 4500) {
+    return;
+  }
+
+  const backendPath = getLlamaTelemetryBackendPath();
+  if (!backendPath) return;
+
+  isPollingLlamaVram = true;
+  lastLlamaVramPollTime = now;
+  execFile(
+    backendPath,
+    ["--list-devices"],
+    { windowsHide: true, timeout: 10000, maxBuffer: 1024 * 1024 },
+    (error, stdout, stderr) => {
+      isPollingLlamaVram = false;
+      if (error) {
+        cachedLlamaVramInfo = null;
+        return;
+      }
+      cachedLlamaVramInfo = parseLlamaDeviceMemory(`${stdout || ""}\n${stderr || ""}`);
+    }
+  );
+}
+
+setInterval(() => pollLlamaVram(false), 5000);
+pollLlamaVram(true);
+
+function getLlamaVram() {
+  return cachedLlamaVramInfo;
 }
 
 let cachedMacRamUsedGb = null;
@@ -963,6 +1060,7 @@ function getHardwareSpecs() {
 
 function getTelemetry() {
   const vram = getNvidiaVram();
+  const llamaVram = vram || getLlamaVram();
   let ram_used_gb = roundGb(os.totalmem() - os.freemem());
   if (osPlatform === "darwin" && cachedMacRamUsedGb !== null) {
     ram_used_gb = cachedMacRamUsedGb;
@@ -972,9 +1070,9 @@ function getTelemetry() {
     cpu_usage: getCpuUsagePercent(),
     ram_used_gb,
     ram_total_gb: roundGb(os.totalmem()),
-    gpu_name: vram?.gpu_name || gpu.name,
-    vram_used_gb: vram?.vram_used_gb || 0,
-    vram_total_gb: vram?.vram_total_gb || gpu.vram_gb || 0,
+    gpu_name: llamaVram?.gpu_name || gpu.name,
+    vram_used_gb: Number.isFinite(Number(llamaVram?.vram_used_gb)) ? llamaVram.vram_used_gb : 0,
+    vram_total_gb: llamaVram?.vram_total_gb || gpu.vram_gb || 0,
   };
 }
 
@@ -1189,20 +1287,20 @@ function getLlmBackend() {
     if (fs.existsSync(LLM_BACKEND_PATHS.winCuda) && detectLlamaCudaGpu()) {
       return { path: LLM_BACKEND_PATHS.winCuda, mode: "Auto (CUDA/CPU)" };
     }
-    if (fs.existsSync(LLM_BACKEND_PATHS.winSycl) && detectLlamaSyclGpu()) {
-      return { path: LLM_BACKEND_PATHS.winSycl, mode: "Auto (SYCL/CPU)" };
-    }
     if (fs.existsSync(LLM_BACKEND_PATHS.winVulkan) && detectLlamaVulkanGpu()) {
       return { path: LLM_BACKEND_PATHS.winVulkan, mode: "Auto (Vulkan/CPU)" };
+    }
+    if (fs.existsSync(LLM_BACKEND_PATHS.winSycl) && detectLlamaSyclGpu()) {
+      return { path: LLM_BACKEND_PATHS.winSycl, mode: "Auto (SYCL/CPU)" };
     }
     if (fs.existsSync(LLM_BACKEND_PATHS.winCuda)) {
       return { path: LLM_BACKEND_PATHS.winCuda, mode: "Auto (CUDA/CPU)" };
     }
-    if (fs.existsSync(LLM_BACKEND_PATHS.winSycl)) {
-      return { path: LLM_BACKEND_PATHS.winSycl, mode: "Auto (SYCL/CPU)" };
-    }
     if (fs.existsSync(LLM_BACKEND_PATHS.winVulkan)) {
       return { path: LLM_BACKEND_PATHS.winVulkan, mode: "Auto (Vulkan/CPU)" };
+    }
+    if (fs.existsSync(LLM_BACKEND_PATHS.winSycl)) {
+      return { path: LLM_BACKEND_PATHS.winSycl, mode: "Auto (SYCL/CPU)" };
     }
     return { path: LLM_BACKEND_PATHS.winCpu, mode: "CPU" };
   } else if (osPlatform === "darwin") {
@@ -2405,26 +2503,37 @@ async function startLlm(settings = {}) {
     contextSize = Math.max(512, Math.min(32768, contextSize));
   }
 
+  const isSyclBackend = backend.mode.includes("SYCL") || path.basename(path.dirname(backend.path)).toLowerCase() === "sycl";
+  const requestedGpuLayers = Number.isFinite(Number(settings.gpuLayers)) ? Number(settings.gpuLayers) : -1;
+  const effectiveGpuLayers = isSyclBackend ? getStableSyclGpuLayers(filename, requestedGpuLayers) : requestedGpuLayers;
+  const effectiveFlashAttn = isSyclBackend ? false : settings.flashAttn !== false;
+  const effectiveCacheTypeK = isSyclBackend ? "q4_0" : settings.cacheTypeK || llmSettings.cacheTypeK || "q8_0";
+  const effectiveCacheTypeV = isSyclBackend ? "q4_0" : settings.cacheTypeV || llmSettings.cacheTypeV || "q8_0";
+  const effectiveBatchSize = isSyclBackend ? Math.min(256, Number(settings.batchSize) || llmSettings.batchSize || 512) : Number(settings.batchSize) || llmSettings.batchSize || 512;
+  const effectiveUbatchSize = isSyclBackend ? Math.min(256, Number(settings.ubatchSize) || llmSettings.ubatchSize || 512) : Number(settings.ubatchSize) || llmSettings.ubatchSize || 512;
+  const effectiveEnableThinking = isSyclBackend && effectiveGpuLayers === 0 ? false : settings.enableThinking !== false;
+
   llmSettings = {
     ...llmSettings,
     model: filename,
     threads: Math.max(1, Math.min(64, Number(settings.threads) || llmSettings.threads)),
     contextSize: contextSize,
-    gpuLayers: Number.isFinite(Number(settings.gpuLayers)) ? Number(settings.gpuLayers) : -1,
+    gpuLayers: effectiveGpuLayers,
+    requestedGpuLayers,
     backendMode: backend.mode,
     backendBinary: path.basename(backend.path),
-    enableThinking: settings.enableThinking !== false,
+    enableThinking: effectiveEnableThinking,
     supportsThinking: /deepseek|qwen3|gemma-4|gemma4|think|r1|e2b|reasoning/i.test(filename),
     // New performance settings
-    flashAttn: settings.flashAttn !== false,
-    cacheTypeK: settings.cacheTypeK || llmSettings.cacheTypeK || "q8_0",
-    cacheTypeV: settings.cacheTypeV || llmSettings.cacheTypeV || "q8_0",
+    flashAttn: effectiveFlashAttn,
+    cacheTypeK: effectiveCacheTypeK,
+    cacheTypeV: effectiveCacheTypeV,
     mlock: settings.mlock || llmSettings.mlock || false,
     mmap: settings.mmap !== false && llmSettings.mmap !== false,
     cachePrompt: settings.cachePrompt !== false && llmSettings.cachePrompt !== false,
     defragThold: Number(settings.defragThold) || llmSettings.defragThold || 0.1,
-    batchSize: Math.max(128, Math.min(2048, Number(settings.batchSize) || llmSettings.batchSize || 512)),
-    ubatchSize: Math.max(128, Math.min(2048, Number(settings.ubatchSize) || llmSettings.ubatchSize || 512)),
+    batchSize: Math.max(128, Math.min(2048, effectiveBatchSize)),
+    ubatchSize: Math.max(128, Math.min(2048, effectiveUbatchSize)),
     performanceProfile: settings.performanceProfile || llmSettings.performanceProfile || "balanced",
   };
 
@@ -2500,21 +2609,26 @@ async function startLlm(settings = {}) {
     "--model", modelPath,
     "--host", "127.0.0.1",
     "--port", String(PORT_LLM),
+    "-lv", "1",
     "--ctx-size", String(llmSettings.contextSize),
     "--threads", String(llmSettings.threads),
     "--n-gpu-layers", String(llmSettings.gpuLayers),
     "--parallel", "1",
-    "--flash-attn", "on",                     // ✅ Memory-efficient attention (all backends)
     "--cache-type-k", String(llmSettings.cacheTypeK),   // ✅ KV cache quantization K
     "--cache-type-v", String(llmSettings.cacheTypeV),   // ✅ KV cache quantization V
     "--cache-prompt",                        // ✅ Prompt caching for multi-turn (major UX win)
     "--ctx-checkpoints", "8",                // ✅ Context shifting recovery
     "--poll", "30",                          // ✅ More aggressive polling
     "--metrics",                             // ✅ Metrics endpoint for tuning
-    "--defrag-thold", String(llmSettings.defragThold),   // ✅ KV cache defragmentation
     "--batch-size", String(llmSettings.batchSize),       // ✅ Prompt processing batch
     "--ubatch-size", String(llmSettings.ubatchSize),     // ✅ Micro-batch size
   ];
+  if (llmSettings.flashAttn) {
+    args.push("--flash-attn", "on");
+  }
+  if (isSyclBackend) {
+    args.push("--no-warmup");
+  }
   
   // CPU mode: lock memory to prevent OS paging (critical for consistent speed)
   const isGpuMode = backend.mode.includes("GPU") || backend.mode.includes("CUDA") || 
@@ -2565,7 +2679,6 @@ async function startLlm(settings = {}) {
   
   // SYCL-specific optimizations (Intel Arc/Graphics)
   if (backend.mode.includes("SYCL")) {
-    spawnEnv.GGML_SYCL_ENABLE_FLASH_ATTN = "1";
     spawnEnv.ZES_ENABLE_SYSMAN = "1";
   }
 
