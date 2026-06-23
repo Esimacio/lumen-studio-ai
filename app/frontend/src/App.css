@@ -874,12 +874,12 @@ body {
 
 .chat-composer-inner {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
   background: var(--md-sys-color-surface-variant);
   border: 1px solid var(--border-color);
-  border-radius: 24px;
-  padding: 6px 6px 6px 14px;
+  border-radius: 18px;
+  padding: 10px 12px 8px;
   transition: border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
               box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
               background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -910,21 +910,27 @@ body {
   outline: none;
 }
 
+.chat-composer-textarea-container {
+  width: 100%;
+  display: flex;
+  min-width: 0;
+}
+
 .chat-composer-textarea {
   flex: 1;
   border: none !important;
   background: transparent !important;
   color: var(--md-sys-color-on-surface);
-  padding: 6px 0;
+  padding: 2px 4px 6px 4px;
   font: inherit;
   font-size: 0.92rem;
   outline: none;
-  resize: none;
+  resize: none !important;
   min-height: 28px;
-  max-height: 120px;
+  max-height: 140px;
   line-height: 1.45;
   overflow-y: auto;
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 .chat-composer-textarea::placeholder {
@@ -934,9 +940,30 @@ body {
 }
 
 .chat-composer textarea {
-  min-height: 34px;
-  max-height: 120px;
-  resize: vertical;
+  min-height: 28px;
+  max-height: 140px;
+  resize: none;
+}
+
+.chat-composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 35%, transparent);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.chat-composer-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-composer-toolbar-right {
+  display: flex;
+  align-items: center;
 }
 
 .chat-composer-send-btn {
@@ -953,7 +980,7 @@ body {
   background: linear-gradient(135deg, var(--md-sys-color-primary), color-mix(in srgb, var(--md-sys-color-primary) 75%, #7c3aed));
   color: var(--md-sys-color-on-primary);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent);
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 .chat-composer-send-btn:hover:not(:disabled) {
@@ -988,7 +1015,7 @@ body {
   color: var(--md-sys-color-error);
   border: 1.5px solid color-mix(in srgb, var(--md-sys-color-error) 40%, transparent);
   animation: stopPulse 1.5s ease-in-out infinite;
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 @keyframes stopPulse {
@@ -1014,7 +1041,7 @@ body {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   background: transparent;
   color: var(--md-sys-color-outline);
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 .chat-composer-attach-btn:hover:not(:disabled) {
@@ -1048,7 +1075,7 @@ body {
   cursor: pointer;
   flex-shrink: 0;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 .chat-composer-deepthink-btn:hover:not(:disabled) {
