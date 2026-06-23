@@ -206,6 +206,14 @@ function SectionHeader({ icon: Icon, title, count, color, isExpanded, onToggle }
   );
 }
 
+const getSliderStyle = (value, min, max) => {
+  const v = Number(value);
+  const mn = Number(min);
+  const mx = Number(max);
+  const pct = mx === mn ? 0 : ((v - mn) / (mx - mn)) * 100;
+  return { "--value": `${pct}%` };
+};
+
 // ─── Main Settings Component ───
 function Settings({
   constraints,
@@ -234,6 +242,8 @@ function Settings({
   diagnosticsCopied,
   theme,
   setTheme,
+  fontSize,
+  setFontSize,
 }) {
   const [llmStatus, setLlmStatus] = useState({ ready: false, settings: {} });
   const [llmBackends, setLlmBackends] = useState({ available: [], candidates: [] });
@@ -704,6 +714,7 @@ function Settings({
                   onChange={(e) => updateConstraint("steps", parseInt(e.target.value))}
                   min="1"
                   max={isOpenVinoNpu ? "8" : "60"}
+                  style={getSliderStyle(constraints.steps, 1, isOpenVinoNpu ? 8 : 60)}
                 />
                 <span className="settings-option-desc">
                   {isOpenVinoNpu
@@ -912,6 +923,7 @@ function Settings({
                   min="0"
                   max="32768"
                   step="512"
+                  style={getSliderStyle(textSettings.contextSize || 0, 0, 32768)}
                 />
                 <span className="settings-option-desc">
                   Model memory limit. 0 uses default limit. (Recommended: 0)
@@ -940,6 +952,7 @@ function Settings({
                   min="0"
                   max="2"
                   step="0.1"
+                  style={getSliderStyle(textSettings.temperature, 0, 2)}
                 />
                 <span className="settings-option-desc">
                   Controls creativity. Lower = focused & factual, Higher = creative & diverse. (Recommended: 0.7)
@@ -978,6 +991,7 @@ function Settings({
                       min="64"
                       max="4096"
                       step="64"
+                      style={getSliderStyle(textSettings.maxTokens || 1024, 64, 4096)}
                     />
                     <span className="settings-option-desc">
                       Manual uses the slider value.
@@ -1045,6 +1059,7 @@ function Settings({
                   onChange={(e) => updateTextSetting("threads", parseInt(e.target.value))}
                   min="1"
                   max={specs?.cpu_cores_logical || 16}
+                  style={getSliderStyle(textSettings.threads || 4, 1, specs?.cpu_cores_logical || 16)}
                 />
               </div>
 
@@ -1063,6 +1078,7 @@ function Settings({
                   }}
                   min="0"
                   max="50"
+                  style={getSliderStyle(textSettings.gpuLayers === -1 ? 50 : textSettings.gpuLayers, 0, 50)}
                 />
                 <span className="settings-option-desc">
                   50 = All layers on GPU
@@ -1082,6 +1098,7 @@ function Settings({
                   min="64"
                   max="2048"
                   step="64"
+                  style={getSliderStyle(textSettings.batchSize || 512, 64, 2048)}
                 />
               </div>
 
@@ -1201,6 +1218,7 @@ function Settings({
                         onChange={(e) => updateSpeechSetting("threads", parseInt(e.target.value))}
                         min="1"
                         max={specs?.cpu_cores_logical || 16}
+                        style={getSliderStyle(speechSettings.threads || 4, 1, specs?.cpu_cores_logical || 16)}
                       />
                       <span className="settings-option-desc">
                         Number of threads to allocate for transcription. (Recommended: 4)
@@ -1309,6 +1327,7 @@ function Settings({
                       min="0.5"
                       max="2"
                       step="0.05"
+                      style={getSliderStyle(ttsSettings?.speed || 1, 0.5, 2)}
                     />
                     <span className="settings-option-desc">
                       1.00x is natural speed. Lower values are slower, higher values are faster.
@@ -1328,7 +1347,7 @@ function Settings({
       <SectionHeader 
         icon={Palette} 
         title="Appearance & Themes" 
-        count={THEMES.length}
+        count={2}
         color="var(--md-sys-color-primary)"
         isExpanded={expandedSections.appearance}
         onToggle={() => toggleSection("appearance")}
@@ -1336,74 +1355,107 @@ function Settings({
       
       {expandedSections.appearance && (
         <div className="settings-expanded-content">
-          <div className="settings-subsection" style={{ marginBottom: "28px" }}>
-        <div className="settings-subsection-title">
-          <Palette size={16} />
-          Color Themes
-        </div>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-          gap: "14px",
-          marginTop: "14px"
-        }}>
-          {THEMES.map((t) => {
-            const isActive = theme === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTheme(t.id)}
-                className={`theme-card-btn ${isActive ? "active" : ""}`}
-                style={{
-                  background: t.bg,
-                  color: t.type === "dark" ? "#f4f4f5" : "#0f172a",
-                  border: isActive ? "2px solid var(--md-sys-color-primary)" : "1px solid var(--border-color)",
-                  borderRadius: "14px",
-                  padding: "18px",
-                  textAlign: "left",
-                  cursor: "pointer",
-                  position: "relative",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "14px",
-                  boxShadow: isActive ? "0 4px 16px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)" : "none",
-                  transition: "all 0.25s ease",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-                  <span style={{ fontWeight: 700, fontSize: "0.88rem", letterSpacing: "-0.01em" }}>{t.name}</span>
-                  {isActive && (
-                    <div style={{
-                      background: "linear-gradient(135deg, var(--md-sys-color-primary), var(--md-sys-color-secondary))",
-                      color: "var(--md-sys-color-on-primary)",
-                      borderRadius: "50%",
-                      width: "22px",
-                      height: "22px",
+          <div className="settings-subsection">
+            {/* Color Themes Sub-section */}
+            <div className="settings-subsection-title">
+              <Palette size={16} />
+              Color Themes
+            </div>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+              gap: "14px",
+              marginTop: "14px"
+            }}>
+              {THEMES.map((t) => {
+                const isActive = theme === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTheme(t.id)}
+                    className={`theme-card-btn ${isActive ? "active" : ""}`}
+                    style={{
+                      background: t.bg,
+                      color: t.type === "dark" ? "#f4f4f5" : "#0f172a",
+                      border: isActive ? "2px solid var(--md-sys-color-primary)" : "1px solid var(--border-color)",
+                      borderRadius: "14px",
+                      padding: "18px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      position: "relative",
                       display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      boxShadow: "0 2px 6px color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent)"
-                    }}>
-                      <Check size={13} strokeWidth={3} />
+                      flexDirection: "column",
+                      gap: "14px",
+                      boxShadow: isActive ? "0 4px 16px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)" : "none",
+                      transition: "all 0.25s ease",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                      <span style={{ fontWeight: 700, fontSize: "0.88rem", letterSpacing: "-0.01em" }}>{t.name}</span>
+                      {isActive && (
+                        <div style={{
+                          background: "linear-gradient(135deg, var(--md-sys-color-primary), var(--md-sys-color-secondary))",
+                          color: "var(--md-sys-color-on-primary)",
+                          borderRadius: "50%",
+                          width: "22px",
+                          height: "22px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          boxShadow: "0 2px 6px color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent)"
+                        }}>
+                          <Check size={13} strokeWidth={3} />
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-                
-                {/* Preview circles for primary and secondary colors */}
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: t.primary, border: "2px solid rgba(255,255,255,0.25)", boxShadow: "0 2px 6px rgba(0,0,0,0.15)" }} title="Primary" />
-                  <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: t.secondary, border: "2px solid rgba(255,255,255,0.25)", boxShadow: "0 2px 6px rgba(0,0,0,0.15)" }} title="Secondary" />
-                  <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: t.bg, border: "1.5px solid rgba(0,0,0,0.12)", boxShadow: "inset 0 2px 4px rgba(0,0,0,0.06)" }} title="Background" />
-                  <span style={{ marginLeft: "auto", fontSize: "0.7rem", opacity: 0.6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    {t.type}
-                  </span>
-                </div>
-              </button>
-            );
-          })}
+                    
+                    {/* Preview circles for primary and secondary colors */}
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: t.primary, border: "2px solid rgba(255,255,255,0.25)", boxShadow: "0 2px 6px rgba(0,0,0,0.15)" }} title="Primary" />
+                      <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: t.secondary, border: "2px solid rgba(255,255,255,0.25)", boxShadow: "0 2px 6px rgba(0,0,0,0.15)" }} title="Secondary" />
+                      <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: t.bg, border: "1.5px solid rgba(0,0,0,0.12)", boxShadow: "inset 0 2px 4px rgba(0,0,0,0.06)" }} title="Background" />
+                      <span style={{ marginLeft: "auto", fontSize: "0.7rem", opacity: 0.6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        {t.type}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Divider separating sub-sections inside the single card */}
+            <div style={{
+              height: "1px",
+              background: "var(--border-color)",
+              margin: "24px 0"
+            }} />
+
+            {/* Text & Interface Size Sub-section */}
+            <div className="settings-subsection-title">
+              <Type size={16} />
+              Text & Interface Size
+            </div>
+            <div className="m3-slider-group" style={{ maxWidth: "480px", marginTop: "14px" }}>
+              <div className="m3-slider-header">
+                <span className="m3-slider-label">Font Size</span>
+                <span className="settings-value-badge">{fontSize || 16}px</span>
+              </div>
+              <input
+                type="range"
+                className="m3-slider"
+                value={fontSize || 16}
+                onChange={(e) => setFontSize(parseInt(e.target.value))}
+                min="12"
+                max="24"
+                step="1"
+                style={getSliderStyle(fontSize || 16, 12, 24)}
+              />
+              <span className="settings-option-desc">
+                Adjusts the global font size of the application text, including chat replies and settings labels. Default is 16px.
+              </span>
+            </div>
+          </div>
         </div>
-      </div>
-      </div>
       )}
     </>
   );

@@ -10,6 +10,7 @@ function formatSidebarDate(value) {
 }
 
 function Sidebar({ 
+  collapsed = false,
   activeTab, 
   setActiveTab, 
   specs,
@@ -33,7 +34,7 @@ function Sidebar({
   onDeleteTtsOutput
 }) {
   return (
-    <div className="sidebar">
+    <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
       <div>
         {/* Sidebar Header */}
         <div className="sidebar-logo">

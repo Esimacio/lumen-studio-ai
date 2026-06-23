@@ -1,8 +1,19 @@
 import React, { memo, useState, useRef, useEffect } from "react";
-import { Cpu, HardDrive, Database, Square, RefreshCw, Sun, Moon, Palette, Check } from "lucide-react";
+import { Cpu, HardDrive, Database, Square, RefreshCw, Sun, Moon, Palette, Check, PanelLeftClose, PanelLeft } from "lucide-react";
 import { THEMES } from "../themes";
 
-function TopStatusBar({ telemetry, serverRunning, activeModel, isLlmLoaded = false, onStopServer, isStoppingServer = false, theme, setTheme }) {
+function TopStatusBar({ 
+  telemetry, 
+  serverRunning, 
+  activeModel, 
+  isLlmLoaded = false, 
+  onStopServer, 
+  isStoppingServer = false, 
+  theme, 
+  setTheme,
+  sidebarVisible,
+  onToggleSidebar
+}) {
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const menuRef = useRef(null);
 
@@ -40,19 +51,29 @@ function TopStatusBar({ telemetry, serverRunning, activeModel, isLlmLoaded = fal
 
   return (
     <div className="top-status-bar">
-      <div className="current-model-info">
-        <div className={getStatusClass()}></div>
-        <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>
-          {getStatusText()}
-        </span>
-        {activeModel && (
-          <>
-            <span style={{ color: "var(--md-sys-color-outline-variant)" }}>|</span>
-            <span style={{ color: "var(--md-sys-color-primary)", fontWeight: 700 }}>
-              {activeModel}
-            </span>
-          </>
-        )}
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <button
+          onClick={onToggleSidebar}
+          className="sidebar-toggle-btn"
+          title={sidebarVisible ? "Collapse Sidebar" : "Expand Sidebar"}
+        >
+          {sidebarVisible ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
+        </button>
+
+        <div className="current-model-info">
+          <div className={getStatusClass()}></div>
+          <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>
+            {getStatusText()}
+          </span>
+          {activeModel && (
+            <>
+              <span style={{ color: "var(--md-sys-color-outline-variant)" }}>|</span>
+              <span style={{ color: "var(--md-sys-color-primary)", fontWeight: 700 }}>
+                {activeModel}
+              </span>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="telemetry-group" style={{ position: "relative" }}>

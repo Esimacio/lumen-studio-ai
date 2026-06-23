@@ -214,6 +214,24 @@ function App() {
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [showHistory, setShowHistory] = useState(false); // Default hide
+  const [sidebarVisible, setSidebarVisible] = useState(() => {
+    const saved = localStorage.getItem("sidebarVisible");
+    return saved !== "false";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("sidebarVisible", String(sidebarVisible));
+  }, [sidebarVisible]);
+
+  const [fontSize, setFontSize] = useState(() => {
+    const saved = localStorage.getItem("fontSize");
+    return saved ? Number(saved) : 16;
+  });
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--app-font-size", `${fontSize}px`);
+    localStorage.setItem("fontSize", String(fontSize));
+  }, [fontSize]);
   const [speechTranscriptions, setSpeechTranscriptions] = useState([]);
   const [selectedSpeechTranscript, setSelectedSpeechTranscript] = useState(null);
   const [showSpeechHistory, setShowSpeechHistory] = useState(false);
@@ -623,6 +641,7 @@ function App() {
 
   const sidebarContent = useMemo(() => (
     <Sidebar
+      collapsed={!sidebarVisible}
       activeTab={activeTab}
       setActiveTab={setActiveTab}
       specs={specs}
@@ -645,7 +664,7 @@ function App() {
       setShowTtsHistory={setShowTtsHistory}
       onDeleteTtsOutput={handleDeleteTtsOutput}
     />
-  ), [activeTab, specs, conversations, activeConversationId, showHistory, handleDeleteConversation, speechTranscriptions, selectedSpeechTranscript, showSpeechHistory, handleDeleteSpeechTranscription, ttsOutputs, selectedTtsOutput, showTtsHistory, handleDeleteTtsOutput]);
+  ), [sidebarVisible, activeTab, specs, conversations, activeConversationId, showHistory, handleDeleteConversation, speechTranscriptions, selectedSpeechTranscript, showSpeechHistory, handleDeleteSpeechTranscription, ttsOutputs, selectedTtsOutput, showTtsHistory, handleDeleteTtsOutput]);
 
   const handleStopServer = useCallback(async () => {
     if (!serverRunning || isStoppingServer) return;
@@ -679,6 +698,8 @@ function App() {
           isStoppingServer={isStoppingServer}
           theme={theme}
           setTheme={setTheme}
+          sidebarVisible={sidebarVisible}
+          onToggleSidebar={() => setSidebarVisible(!sidebarVisible)}
         />
 
         {/* Dynamic Workspace Container */}
@@ -793,6 +814,8 @@ function App() {
             diagnosticsCopied={diagnosticsCopied}
             theme={theme}
             setTheme={setTheme}
+            fontSize={fontSize}
+            setFontSize={setFontSize}
           />
         </div>
       </div>

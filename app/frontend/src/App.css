@@ -1,5 +1,6 @@
 /* Modern Minimalist & Glassmorphism Design System */
 :root {
+  --app-font-size: 16px;
   font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -48,6 +49,10 @@
   --md-sys-color-card-border: rgba(15, 23, 42, 0.06);
   --glass-shadow: 0 8px 32px 0 rgba(15, 23, 42, 0.04);
   --glass-blur: blur(16px);
+}
+
+html {
+  font-size: var(--app-font-size);
 }
 
 /* Dark Theme Variables */
@@ -282,12 +287,12 @@ html[data-theme="dark-oled"] body {
   top: 40px;
   right: 0;
   width: 190px;
-  background: var(--md-sys-color-surface);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 40%, var(--md-sys-color-background));
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
   border: 1px solid var(--border-color);
   border-radius: var(--md-shape-corner-medium);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -385,7 +390,7 @@ body {
   overflow: hidden;
   height: 100vh;
   width: 100vw;
-  font-size: 16px;
+  font-size: 1rem;
   transition: background-color var(--md-transition-duration) ease;
 }
 
@@ -412,6 +417,16 @@ body {
   box-shadow: var(--glass-shadow);
   z-index: 11;
   transition: all var(--md-transition-duration) var(--md-transition-easing);
+}
+
+.sidebar.collapsed {
+  width: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  border-right-color: transparent !important;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
 }
 
 .sidebar-logo {
@@ -744,7 +759,7 @@ body {
 
 .chat-message-row.ai .chat-bubble-wrap {
   align-items: flex-start;
-  max-width: min(1520px, calc(100% - 42px));
+  max-width: 80%;
 }
 
 .chat-bubble {
@@ -1209,8 +1224,9 @@ body {
   min-width: 280px;
   max-height: 280px;
   overflow-y: auto;
-  background: color-mix(in srgb, var(--md-sys-color-surface) 95%, black);
-  backdrop-filter: blur(16px);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 40%, var(--md-sys-color-background));
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
   border: 1px solid var(--border-color);
   border-radius: 12px;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
@@ -1382,6 +1398,28 @@ body {
   padding: 0 24px;
   z-index: 10;
   box-shadow: var(--glass-shadow);
+}
+
+.sidebar-toggle-btn {
+  background: var(--md-sys-color-surface-variant);
+  border: 1px solid var(--border-color);
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--md-shape-corner-medium);
+  transition: all var(--md-transition-duration) var(--md-transition-easing);
+  flex-shrink: 0;
+}
+
+.sidebar-toggle-btn:hover {
+  color: var(--md-sys-color-primary);
+  border-color: var(--md-sys-color-primary);
+  background-color: var(--md-sys-color-primary-container);
+  transform: scale(1.05);
 }
 
 .current-model-info {
