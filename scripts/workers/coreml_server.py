@@ -8,8 +8,19 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+import numpy as np
+import torch
+from python_coreml_stable_diffusion.pipeline import (
+    StableDiffusionPipeline,
+    StableDiffusionXLPipeline,
+    get_coreml_pipe,
+    SCHEDULER_MAP
+)
+
 
 
 MODEL_VERSION_BY_NAME = {
@@ -18,6 +29,24 @@ MODEL_VERSION_BY_NAME = {
     "stable-diffusion-v1-4": "CompVis/stable-diffusion-v1-4",
     "cyberrealistic": "runwayml/stable-diffusion-v1-5",
 }
+
+
+def get_scheduler_class(name: str):
+    name = str(name).lower().replace(" ", "").replace("_", "").replace("-", "")
+    if "eulerancestral" in name or "eulera" in name:
+        return SCHEDULER_MAP.get("EulerAncestralDiscrete")
+    if "euler" in name:
+        return SCHEDULER_MAP.get("EulerDiscrete")
+    if "dpm" in name:
+        return SCHEDULER_MAP.get("DPMSolverMultistep")
+    if "ddim" in name:
+        return SCHEDULER_MAP.get("DDIM")
+    if "lms" in name:
+        return SCHEDULER_MAP.get("LMSDiscrete")
+    if "pndm" in name:
+        return SCHEDULER_MAP.get("PNDM")
+    return None
+
 
 
 def json_response(handler, code, payload):
@@ -107,6 +136,29 @@ class CoreMLServerState:
         self.steps = steps
         self.cfg_scale = cfg_scale
         self.started_at = time.time()
+        self.lock = threading.Lock()
+
+        # Load CoreML pipeline components on startup
+        print(f"[coreml-npu] Loading PyTorch reference configuration for model version: {self.model_version}", flush=True)
+        SDP = StableDiffusionXLPipeline if 'xl' in self.model_version else StableDiffusionPipeline
+        pytorch_pipe = SDP.from_pretrained(
+            self.model_version,
+            use_auth_token=True,
+        )
+
+        compute_unit = os.environ.get("COREML_COMPUTE_UNIT", "CPU_AND_NE")
+        sources = infer_model_sources(self.resources)
+
+        print(f"[coreml-npu] Loading Core ML models from: {self.resources} (compute unit: {compute_unit}, sources: {sources})", flush=True)
+        self.pipe = get_coreml_pipe(
+            pytorch_pipe=pytorch_pipe,
+            mlpackages_dir=self.resources,
+            model_version=self.model_version,
+            compute_unit=compute_unit,
+            sources=sources
+        )
+        print("[coreml-npu] Core ML models loaded successfully.", flush=True)
+
 
 
 def make_handler(state: CoreMLServerState):
@@ -163,53 +215,37 @@ def make_handler(state: CoreMLServerState):
                 negative_prompt = str(payload.get("negative_prompt") or "").strip()
 
                 started = time.time()
-                out_dir = Path(tempfile.mkdtemp(prefix="portable-diffusion-coreml-"))
-                cmd = [
-                    sys.executable,
-                    "-m",
-                    "python_coreml_stable_diffusion.pipeline",
-                    "--prompt",
-                    prompt,
-                    "-i",
-                    str(state.resources),
-                    "-o",
-                    str(out_dir),
-                    "--compute-unit",
-                    os.environ.get("COREML_COMPUTE_UNIT", "CPU_AND_NE"),
-                    "--seed",
-                    str(seed),
-                    "--model-version",
-                    state.model_version,
-                    "--num-inference-steps",
-                    str(steps),
-                    "--guidance-scale",
-                    str(guidance),
-                    "--model-sources",
-                    infer_model_sources(state.resources),
-                ]
-                if negative_prompt:
-                    cmd.extend(["--negative-prompt", negative_prompt])
+
+                # Dynamic sampler / scheduler swap
+                sampler = payload.get("sample_method") or payload.get("sampler") or payload.get("sampler_name")
+                if sampler and hasattr(state, "pipe") and state.pipe:
+                    scheduler_cls = get_scheduler_class(sampler)
+                    if scheduler_cls is not None and state.pipe.scheduler.__class__ != scheduler_cls:
+                        print(f"[coreml-npu] Switching scheduler to {scheduler_cls.__name__}", flush=True)
+                        state.pipe.scheduler = scheduler_cls.from_config(state.pipe.scheduler.config)
 
                 print("[coreml-npu] generating image", flush=True)
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                )
-                output_lines = []
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    output_lines.append(line.rstrip())
-                    print(line, end="", flush=True)
-                code = proc.wait()
-                if code != 0:
-                    raise RuntimeError("CoreML generation failed with code %s:\n%s" % (code, "\n".join(output_lines[-30:])))
+                np.random.seed(seed)
 
-                image_path = latest_png(out_dir)
-                encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
-                shutil.rmtree(out_dir, ignore_errors=True)
+                # Thread safe execution of the in-memory pipeline
+                with state.lock:
+                    output = state.pipe(
+                        prompt=prompt,
+                        height=state.pipe.height,
+                        width=state.pipe.width,
+                        num_inference_steps=steps,
+                        guidance_scale=guidance,
+                        negative_prompt=negative_prompt if negative_prompt else None,
+                    )
+                
+                image = output.images[0]
+
+                # Convert to base64 PNG
+                import io
+                buffered = io.BytesIO()
+                image.save(buffered, format="PNG")
+                encoded = base64.b64encode(buffered.getvalue()).decode("ascii")
+
                 print("[coreml-npu] decoding complete", flush=True)
                 json_response(self, 200, {
                     "created": int(time.time()),
@@ -220,7 +256,10 @@ def make_handler(state: CoreMLServerState):
                     "duration_sec": round(time.time() - started, 2),
                 })
             except Exception as exc:
+                import traceback
+                traceback.print_exc()
                 json_response(self, 500, {"ok": False, "error": str(exc)})
+
 
         def log_message(self, fmt, *args):
             print("[coreml-npu-http] " + fmt % args, flush=True)
