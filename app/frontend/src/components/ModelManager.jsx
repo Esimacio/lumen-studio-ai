@@ -233,6 +233,24 @@ const COREML_MODEL_LIBRARY = [
         notes: "Apple Silicon ANE (Neural Engine) optimized 6-bit palettized Stable Diffusion 1.5 model. Unzips automatically on download completion and runs extremely fast on Mac NPUs.",
         url: "https://huggingface.co/apple/coreml-stable-diffusion-v1-5-palettized/resolve/main/coreml-stable-diffusion-v1-5-palettized_split_einsum_v2_compiled.zip",
       },
+      {
+        name: "CyberRealistic v1.5 CoreML (6-bit palettized)",
+        filename: "cyberrealistic-6bit.coreml",
+        format: "CoreML",
+        approxSize: "815 MB",
+        resolution: "512x512",
+        notes: "6-bit palettized CoreML version of CyberRealistic. Extremely fast and optimized for Apple Silicon Neural Engine (ANE).",
+        url: "https://huggingface.co/orailnooor/cyberrealistic-coreml/resolve/main/cyberrealistic-6bit.coreml.zip",
+      },
+      {
+        name: "CyberRealistic v1.5 CoreML (Standard)",
+        filename: "cyberrealistic.coreml",
+        format: "CoreML",
+        approxSize: "1.8 GB",
+        resolution: "512x512",
+        notes: "Standard CoreML version of CyberRealistic. Provides high-fidelity realism optimized for Apple Silicon NPUs.",
+        url: "https://huggingface.co/orailnooor/cyberrealistic-coreml/resolve/main/cyberrealistic.coreml.zip",
+      },
     ],
   },
 ];
@@ -991,7 +1009,7 @@ function ModelManager({
             width: 512,
             height: 512,
             steps: activeConstraints.steps || 20,
-            cfgScale: activeConstraints.cfgScale || 7,
+            cfgScale: Number(activeConstraints.cfgScale) > 1 ? activeConstraints.cfgScale : 7,
           }
         : modelInfo?.backendType === "openvino-npu"
         ? {
@@ -1462,9 +1480,16 @@ function ModelManager({
               <div className="model-progress-fill" style={{ width: `${Math.min(100, Math.max(0, modelLoadProgress.progress))}%`, transition: "width 0.2s ease" }}></div>
             </div>
             {(modelLoadProgress.backendMode || modelLoadProgress.device) && (
-              <div style={{ fontSize: "0.75rem", color: "var(--md-sys-color-outline)", marginTop: "6px" }}>
-                Initializing {modelLoadProgress.backendMode || "backend"}
-                {modelLoadProgress.device ? ` • ${modelLoadProgress.device}` : ""}
+              <div style={{ fontSize: "0.75rem", color: "var(--md-sys-color-outline)", marginTop: "6px", lineHeight: "1.4" }}>
+                <div>
+                  Initializing {modelLoadProgress.backendMode || "backend"}
+                  {modelLoadProgress.device ? ` • ${modelLoadProgress.device}` : ""}
+                </div>
+                {(modelLoadProgress.backendMode === "Apple NPU" || modelLoadProgress.backendMode === "Apple Neural Engine (NPU)") && (
+                  <div style={{ color: "var(--md-sys-color-primary)", marginTop: "4px", fontWeight: "500" }}>
+                    ⚠️ Note: The first time loading this model, compilation on the Apple Neural Engine (NPU) can take 3–4 minutes. Subsequent loads will be almost instant.
+                  </div>
+                )}
               </div>
             )}
           </div>

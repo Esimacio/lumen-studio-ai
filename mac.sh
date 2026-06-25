@@ -24,6 +24,7 @@ else
   LLM_BACKEND_PATH="$APP_DIR/llm-backend/mac/x64/llama-server"
 fi
 TTS_RUNTIME_PATH="$APP_DIR/tts-runtime/node_modules/kokoro-js"
+SPEECH_BACKEND_PATH="$APP_DIR/speech-backend/mac/cpu/whisper-cli"
 PLATFORM_LABEL="macOS"
 
 DIST_INDEX="$APP_DIR/dist/index.html"
@@ -53,6 +54,7 @@ fi
 if [ "$USE_SYMLINKS" = true ]; then
   if [[ -d "$FRONTEND_NODE_MODULES" && ! -L "$FRONTEND_NODE_MODULES" ]]; then
     echo "  >> Migrating existing node_modules to node_modules_mac..."
+    rm -rf "$MAC_NODE_MODULES"
     mv "$FRONTEND_NODE_MODULES" "$MAC_NODE_MODULES"
   fi
   rm -f "$FRONTEND_NODE_MODULES"
@@ -114,6 +116,9 @@ if [[ ! -x "$LLM_BACKEND_PATH" ]]; then
 fi
 if [[ ! -d "$TTS_RUNTIME_PATH" ]]; then
   SETUP_REASON="Kokoro text-to-speech runtime is missing."
+fi
+if [[ ! -x "$SPEECH_BACKEND_PATH" ]]; then
+  SETUP_REASON="macOS whisper.cpp speech backend is missing."
 fi
 
 if [[ -n "$SETUP_REASON" ]]; then

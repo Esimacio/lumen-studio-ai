@@ -371,6 +371,96 @@ let currentSettings = {
   height: 512,
 };
 
+const BACKEND_RESTART_SETTING_KEYS = [
+  "model",
+  "steps",
+  "cfgScale",
+  "sampler",
+  "threads",
+  "useGpu",
+  "backendType",
+  "vaeTiling",
+  "vaeOnCpu",
+  "flashAttn",
+  "width",
+  "height",
+];
+
+function normalizeBackendSettingValue(key, value) {
+  if (value === undefined || value === null) return value;
+  if (key === "model") return path.resolve(String(value));
+  if (["steps", "threads", "width", "height"].includes(key)) return parseInt(value);
+  if (key === "cfgScale") return Math.round(parseFloat(value) * 1000) / 1000;
+  if (["useGpu", "vaeTiling", "vaeOnCpu", "flashAttn"].includes(key)) return Boolean(value);
+  return String(value);
+}
+
+function backendSettingsMatch(current, requested) {
+  return BACKEND_RESTART_SETTING_KEYS.every((key) => (
+    normalizeBackendSettingValue(key, current[key]) === normalizeBackendSettingValue(key, requested[key])
+  ));
+}
+
+function appleNpuRuntimeMatches(current, requested) {
+  return normalizeBackendSettingValue("model", current.model) === normalizeBackendSettingValue("model", requested.model) &&
+    current.backendType === "apple-npu" &&
+    requested.backendType === "apple-npu" &&
+    normalizeBackendSettingValue("useGpu", current.useGpu) === normalizeBackendSettingValue("useGpu", requested.useGpu) &&
+    normalizeBackendSettingValue("width", current.width || 512) === normalizeBackendSettingValue("width", requested.width || 512) &&
+    normalizeBackendSettingValue("height", current.height || 512) === normalizeBackendSettingValue("height", requested.height || 512);
+}
+
+function setBackendLoadStage(phase, progress, extra = {}) {
+  if (backendReady) return;
+  backendLoadState = {
+    ...backendLoadState,
+    active: true,
+    phase,
+    progress: Math.max(backendLoadState.progress || 0, Math.min(99, progress)),
+    ...extra,
+  };
+}
+
+function updateCoreMLLoadProgress(output) {
+  if (currentSettings.backendType !== "apple-npu" || backendReady) return;
+  const cleanOutput = stripAnsi(output);
+
+  if (cleanOutput.includes("Loading PyTorch reference configuration")) {
+    setBackendLoadStage("Loading PyTorch reference configuration...", 8);
+  }
+
+  const pipelineMatch = cleanOutput.match(/Loading pipeline components.*?(\d+)%/);
+  if (pipelineMatch) {
+    const componentProgress = Math.max(0, Math.min(100, Number(pipelineMatch[1]) || 0));
+    setBackendLoadStage("Loading pipeline components...", 10 + Math.round(componentProgress * 0.25));
+  }
+
+  if (cleanOutput.includes("Loading Core ML models from")) {
+    setBackendLoadStage("Loading Core ML model bundle...", 40);
+  }
+  if (cleanOutput.includes("Loading text_encoder")) {
+    setBackendLoadStage("Loading text encoder...", 48);
+  }
+  if (cleanOutput.includes("Loading unet")) {
+    setBackendLoadStage("Loading UNet neural engine model...", 62);
+  }
+  if (cleanOutput.includes("Loading vae_decoder")) {
+    setBackendLoadStage("Loading VAE decoder...", 78);
+  }
+  if (cleanOutput.includes("Loading safety_checker")) {
+    setBackendLoadStage("Loading safety checker...", 88);
+  }
+  if (cleanOutput.includes("Initializing Core ML pipe")) {
+    setBackendLoadStage("Initializing Core ML pipeline...", 94);
+  }
+  if (cleanOutput.includes("Stable Diffusion configured")) {
+    setBackendLoadStage("Configuring image resolution...", 97);
+  }
+  if (cleanOutput.includes("Core ML models loaded successfully")) {
+    setBackendLoadStage("Core ML models loaded successfully.", 99);
+  }
+}
+
 let lastCpuSample = null;
 let cachedGpuInfo = null;
 let cachedBackendOptions = null;
@@ -3640,6 +3730,28 @@ function startBackendReadyPoll() {
   }, 500);
 }
 
+function startCoreMLLoadHeartbeat(proc) {
+  if (currentSettings.backendType !== "apple-npu") return null;
+  const startedAt = Date.now();
+  const interval = setInterval(() => {
+    if (backendProc !== proc || backendReady || !backendLoadState.active) {
+      clearInterval(interval);
+      return;
+    }
+    const elapsedSec = (Date.now() - startedAt) / 1000;
+    const targetProgress = Math.min(96, Math.round(8 + 88 * (1 - Math.exp(-elapsedSec / 55))));
+    if (targetProgress > (backendLoadState.progress || 0)) {
+      backendLoadState = {
+        ...backendLoadState,
+        active: true,
+        phase: backendLoadState.phase || "Loading Core ML model...",
+        progress: targetProgress,
+      };
+    }
+  }, 1000);
+  return interval;
+}
+
 function getDefaultModel() {
   try {
     const files = fs.readdirSync(MODELS).filter(isModelFile);
@@ -4128,7 +4240,7 @@ async function startBackend(settings = {}) {
     throw new Error(modelLoadIssue);
   }
 
-  PORT_BACKEND = await findAvailableBackendPort();
+  PORT_BACKEND = Number(settings.backendPort) > 0 ? Number(settings.backendPort) : await findAvailableBackendPort();
 
   const resolvedBackendType = resolveBackendType(currentSettings.useGpu, currentSettings.backendType, currentSettings.model);
   currentSettings.backendType = resolvedBackendType;
@@ -4260,10 +4372,12 @@ async function startBackend(settings = {}) {
   const proc = spawn(backendPath, args, { stdio: "pipe", env: spawnEnv });
   backendProc = proc;
   startBackendReadyPoll();
+  const coremlLoadHeartbeat = startCoreMLLoadHeartbeat(proc);
 
   proc.stdout.on("data", d => {
     const output = d.toString();
     process.stdout.write("  [sd] " + output);
+    updateCoreMLLoadProgress(output);
     const cleanOutput = stripAnsi(output);
     if (cleanOutput.includes("listening on")) {
       markBackendReady();
@@ -4344,6 +4458,7 @@ async function startBackend(settings = {}) {
   proc.stderr.on("data", d => {
     const output = d.toString();
     process.stderr.write("  [sd-err] " + output);
+    updateCoreMLLoadProgress(output);
     const cleanOutput = stripAnsi(output);
     const deviceMatch = cleanOutput.match(/Device\s+\d+:\s*([^,\r\n]+)/);
     if (deviceMatch) {
@@ -4381,6 +4496,7 @@ async function startBackend(settings = {}) {
     }
   });
   proc.on("exit", (code, signal) => {
+    if (coremlLoadHeartbeat) clearInterval(coremlLoadHeartbeat);
     if (backendProc !== proc) {
       console.log("  [backend] stale process exited with code", code, signal ? `(signal ${signal})` : "", `(process ${procSeq})`);
       return;
@@ -6283,6 +6399,15 @@ async function getLlmfitRecommendations(useCase = "chat", limit = 10) {
     try {
       const targetModel = newSettings.model || currentSettings.model || getDefaultModel();
       assertNoOtherActiveRuntime("image", targetModel);
+      const requestedSettings = { ...currentSettings, ...newSettings, model: targetModel };
+      const imageBackendReady = (backendReady && backendProc) || (openvinoReady && openvinoProc);
+      if (imageBackendReady && backendSettingsMatch(currentSettings, requestedSettings)) {
+        return json(res, 200, { ok: true, message: "Backend already running with requested settings.", settings: currentSettings, port: PORT_BACKEND });
+      }
+      if (backendReady && backendProc && appleNpuRuntimeMatches(currentSettings, requestedSettings)) {
+        currentSettings = requestedSettings;
+        return json(res, 200, { ok: true, message: "Apple NPU backend already running; updated generation defaults.", settings: currentSettings, port: PORT_BACKEND });
+      }
       await killBackend();
       await new Promise(r => setTimeout(r, 500));
       if (newSettings.backendType === "openvino-npu") {
@@ -6296,6 +6421,34 @@ async function getLlmfitRecommendations(useCase = "chat", limit = 10) {
           console.error("  [openvino-npu] Startup failed:", backendError);
         });
         return json(res, 200, { ok: true, message: "OpenVINO NPU backend starting...", settings: currentSettings, port: PORT_BACKEND });
+      }
+      if (newSettings.backendType === "apple-npu") {
+        const backendPort = await findAvailableBackendPort();
+        PORT_BACKEND = backendPort;
+        newSettings.backendPort = backendPort;
+        currentSettings = { ...currentSettings, ...newSettings };
+        backendLoadState = {
+          active: true,
+          phase: "Starting Apple NPU backend...",
+          progress: 1,
+          current: 0,
+          total: 0,
+          speed: "",
+          model: path.basename(newSettings.model || targetModel),
+          backendMode: "Apple NPU",
+          backendBinary: path.basename(getCoreMLPythonPath()),
+          device: "",
+        };
+        startBackend(newSettings).catch((err) => {
+          backendError = err.message || String(err);
+          backendLoadState = {
+            ...backendLoadState,
+            active: false,
+            phase: "Apple NPU model load failed",
+          };
+          console.error("  [coreml-npu] Startup failed:", backendError);
+        });
+        return json(res, 200, { ok: true, message: "Apple NPU backend starting...", settings: { ...currentSettings, ...newSettings }, port: backendPort });
       }
       await startBackend(newSettings);
       return json(res, 200, { ok: true, message: "Backend restarting...", settings: currentSettings, port: PORT_BACKEND });

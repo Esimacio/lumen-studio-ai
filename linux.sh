@@ -72,6 +72,7 @@ fi
 if [ "$USE_SYMLINKS" = true ]; then
   if [[ -d "$FRONTEND_NODE_MODULES" && ! -L "$FRONTEND_NODE_MODULES" ]]; then
     echo "  >> Migrating existing node_modules to node_modules_linux..."
+    rm -rf "$LINUX_NODE_MODULES"
     mv "$FRONTEND_NODE_MODULES" "$LINUX_NODE_MODULES"
   fi
   rm -f "$FRONTEND_NODE_MODULES"

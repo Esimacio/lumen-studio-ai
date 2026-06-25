@@ -186,12 +186,13 @@ function Generator({
         const requestedBackend = constraints.backendType || (constraints.useGpu === false ? "cpu" : "auto");
         const currentBackend = settings.backendType || (settings.useGpu === false ? "cpu" : "auto");
         const shouldCompareModel = requestedBackend !== "openvino-npu";
+        const isCoreMLBackend = requestedBackend === "apple-npu";
 
         if ((shouldCompareModel && currentModelName !== targetModelName) ||
-            parseInt(settings.steps) !== parseInt(constraints.steps) ||
-            Math.abs(parseFloat(settings.cfgScale) - parseFloat(constraints.cfgScale)) > 0.05 ||
-            settings.sampler !== constraints.sampler ||
-            parseInt(settings.threads) !== parseInt(constraints.threads) ||
+            (!isCoreMLBackend && parseInt(settings.steps) !== parseInt(constraints.steps)) ||
+            (!isCoreMLBackend && Math.abs(parseFloat(settings.cfgScale) - parseFloat(constraints.cfgScale)) > 0.05) ||
+            (!isCoreMLBackend && settings.sampler !== constraints.sampler) ||
+            (!isCoreMLBackend && parseInt(settings.threads) !== parseInt(constraints.threads)) ||
             Boolean(settings.useGpu) !== (constraints.useGpu !== false) ||
             parseInt(settings.width || 512) !== parseInt(constraints.width || 512) ||
             parseInt(settings.height || 512) !== parseInt(constraints.height || 512) ||

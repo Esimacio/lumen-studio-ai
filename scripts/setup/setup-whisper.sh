@@ -44,6 +44,47 @@ download_and_extract() {
   fi
 }
 
+install_macos_whisper_from_homebrew() {
+  local cpu_dest="$APP_DIR/speech-backend/mac/cpu"
+  local lib_dest="$APP_DIR/speech-backend/mac/lib"
+  local brew_bin
+  brew_bin="$(command -v brew || true)"
+  if [[ -z "$brew_bin" ]]; then
+    return 1
+  fi
+
+  if ! "$brew_bin" list whisper-cpp >/dev/null 2>&1; then
+    echo "   >>   Installing whisper-cpp with Homebrew..."
+    "$brew_bin" install whisper-cpp
+  fi
+
+  local whisper_prefix
+  whisper_prefix="$("$brew_bin" --prefix whisper-cpp)"
+  if [[ ! -x "$whisper_prefix/bin/whisper-cli" ]]; then
+    echo "   XX   Homebrew whisper-cpp did not provide whisper-cli at $whisper_prefix/bin/whisper-cli" >&2
+    return 1
+  fi
+
+  mkdir -p "$cpu_dest" "$lib_dest"
+  cp "$whisper_prefix/bin/whisper-cli" "$cpu_dest/whisper-cli"
+  if [[ -x "$whisper_prefix/bin/whisper-server" ]]; then
+    cp "$whisper_prefix/bin/whisper-server" "$cpu_dest/whisper-server"
+  fi
+  chmod +x "$cpu_dest/whisper-cli" "$cpu_dest/whisper-server" 2>/dev/null || true
+
+  # Homebrew's whisper-cli uses @rpath/libwhisper.1.dylib. The app launcher runs
+  # it from app/speech-backend/mac/cpu, where ../lib is already in its rpath.
+  cp -P "$whisper_prefix"/lib/libwhisper*.dylib "$lib_dest/" 2>/dev/null || true
+
+  if "$cpu_dest/whisper-cli" --help >/dev/null 2>&1; then
+    echo "   OK   installed macOS whisper.cpp backend from Homebrew."
+    return 0
+  fi
+
+  echo "   XX   whisper-cli was copied but did not run successfully." >&2
+  return 1
+}
+
 if [[ "$PLATFORM" == "Linux" ]]; then
   mkdir -p "$APP_DIR/speech-backend/linux/cpu" "$APP_DIR/speech-backend/linux/vulkan"
   if [[ ! -x "$APP_DIR/speech-backend/linux/cpu/whisper-cli" && -x "$APP_DIR/speech-backend/linux/whisper-cli" ]]; then
@@ -71,9 +112,14 @@ elif [[ "$PLATFORM" == "Darwin" ]]; then
   fi
   if [[ -x "$APP_DIR/speech-backend/mac/cpu/whisper-cli" || -x "$APP_DIR/speech-backend/mac/metal/whisper-cli" ]]; then
     echo "   OK   whisper.cpp macOS speech backend already ready."
+  elif install_macos_whisper_from_homebrew; then
+    :
   else
-    echo "   !!   No official portable macOS whisper.cpp CLI archive is available for this setup script yet."
-    echo "        Build whisper.cpp manually and copy whisper-cli to app/speech-backend/mac/cpu or app/speech-backend/mac/metal."
+    echo "   !!   Could not install macOS whisper.cpp automatically."
+    echo "        Homebrew is not installed, and this app does not yet ship a portable macOS whisper.cpp archive."
+    echo "        For a distributable fix, bundle whisper-cli + whisper-server into app/speech-backend/mac/cpu"
+    echo "        during packaging, or add a Lemonade embeddable speech backend integration."
+    echo "        Manual workaround: install whisper.cpp and copy whisper-cli to app/speech-backend/mac/cpu."
   fi
 else
   echo "Unsupported platform: $PLATFORM" >&2

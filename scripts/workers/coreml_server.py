@@ -121,6 +121,14 @@ def infer_model_sources(resource_dir: Path) -> str:
     return "packages"
 
 
+def has_coreml_safety_checker(resource_dir: Path, sources: str, model_version: str) -> bool:
+    names = {entry.name.lower() for entry in resource_dir.iterdir()}
+    if sources == "compiled":
+        return "safetychecker.mlmodelc" in names
+    package_name = f"Stable_Diffusion_version_{model_version}_safety_checker.mlpackage".replace("/", "_").lower()
+    return package_name in names
+
+
 def latest_png(root: Path) -> Path:
     images = sorted(root.rglob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not images:
@@ -148,6 +156,9 @@ class CoreMLServerState:
 
         compute_unit = os.environ.get("COREML_COMPUTE_UNIT", "CPU_AND_NE")
         sources = infer_model_sources(self.resources)
+        if not has_coreml_safety_checker(self.resources, sources, self.model_version):
+            print("[coreml-npu] Safety checker Core ML model not found; running without safety checker.", flush=True)
+            pytorch_pipe.safety_checker = None
 
         print(f"[coreml-npu] Loading Core ML models from: {self.resources} (compute unit: {compute_unit}, sources: {sources})", flush=True)
         self.pipe = get_coreml_pipe(
@@ -199,6 +210,9 @@ def make_handler(state: CoreMLServerState):
                 return
 
             try:
+                if not hasattr(state, "pipe") or not state.pipe:
+                    raise RuntimeError("CoreML pipeline is not initialized or failed to load.")
+
                 length = int(self.headers.get("Content-Length", "0") or "0")
                 payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
                 prompt = str(payload.get("prompt") or "").strip()
@@ -211,6 +225,9 @@ def make_handler(state: CoreMLServerState):
 
                 steps = max(1, int(payload.get("steps") or state.steps or 30))
                 guidance = float(payload.get("cfg_scale") or state.cfg_scale or 7.0)
+                if guidance <= 1.0:
+                    print("[coreml-npu] CFG scale <= 1 can disable classifier-free guidance, but this compiled UNet expects CFG batch shape. Using cfg_scale=7.0.", flush=True)
+                    guidance = 7.0
                 seed = int(payload.get("seed")) if payload.get("seed") not in (None, -1) else int(time.time_ns() % (2 ** 32))
                 negative_prompt = str(payload.get("negative_prompt") or "").strip()
 
