@@ -28,6 +28,22 @@ print_ok() { echo "   OK   $1"; }
 print_info() { echo "   >>   $1"; }
 print_fail() { echo "   XX   $1"; }
 
+supports_symlinks() {
+  local dir="$1"
+  local test_target="$dir/.symlink-test-target"
+  local test_link="$dir/.symlink-test-link"
+
+  rm -f "$test_target" "$test_link"
+  : > "$test_target"
+  if ln -s ".symlink-test-target" "$test_link" 2>/dev/null; then
+    rm -f "$test_target" "$test_link"
+    return 0
+  fi
+
+  rm -f "$test_target" "$test_link"
+  return 1
+}
+
 echo ""
 echo "  ============================================================"
 echo "   Setting up Kokoro ONNX Text-to-Speech runtime"
@@ -50,6 +66,11 @@ fi
 cd "$RUNTIME_DIR"
 export PATH="$NODE_DIR/bin:$PATH"
 print_info "Installing kokoro-js into app/tts-runtime..."
-"$NPM_BIN" install --prefer-offline
+if supports_symlinks "$RUNTIME_DIR"; then
+  "$NPM_BIN" install --prefer-offline
+else
+  print_info "Filesystem does not support symlinks; installing without npm bin links..."
+  "$NPM_BIN" install --prefer-offline --no-bin-links
+fi
 
 print_ok "Kokoro TTS runtime is ready."
