@@ -1,4 +1,4 @@
-# Uncensored AI Studio - Setup Script
+# Lumen AI Studio - Setup Script
 # scripts/setup/ lives under root, app/ is a root sibling of scripts/
 
 $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -15,7 +15,7 @@ $distDir     = Join-Path $appDir   "dist"
 function Print-Header {
     Write-Host ""
     Write-Host "  ============================================================" -ForegroundColor Cyan
-    Write-Host "   UNCENSORED AI STUDIO      -  First-Time Setup" -ForegroundColor Cyan
+    Write-Host "   LUMEN AI STUDIO      -  First-Time Setup" -ForegroundColor Cyan
     Write-Host "   100% Self-Contained  |  No System Install Required" -ForegroundColor DarkCyan
     Write-Host "  ============================================================" -ForegroundColor Cyan
     Write-Host ""
@@ -243,7 +243,7 @@ if (-not $nodeReady) {
     }
 
     if (-not $nodeReady) {
-        Print-Fail "Portable Node.js install is incomplete or corrupted. Close any running Uncensored AI Studio windows, delete app/tools/node-win, then run setup again."
+        Print-Fail "Portable Node.js install is incomplete or corrupted. Close any running Lumen AI Studio windows, delete app/tools/node-win, then run setup again."
         Read-Host; exit 1
     }
 
@@ -542,7 +542,7 @@ Write-Host ""
 
 if (-not (Test-Path $npmCmd)) {
     Print-Fail "npm.cmd was not found at $npmCmd"
-    Print-Fail "Close any running Uncensored AI Studio windows, delete app/tools/node-win, then run setup again."
+    Print-Fail "Close any running Lumen AI Studio windows, delete app/tools/node-win, then run setup again."
     Read-Host; exit 1
 }
 
