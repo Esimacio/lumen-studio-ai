@@ -166,7 +166,7 @@ if [[ -n "$SETUP_REASON" ]]; then
   if [[ "$SETUP_MODE" == "First-Time Setup" ]]; then
     echo "  This looks like your first run on macOS. Setting up automatically..."
   else
-    echo "  Uncensored AI Studio needs a quick repair before launch."
+    echo "  Lumen AI Studio needs a quick repair before launch."
   fi
   echo "  Reason: $SETUP_REASON"
   echo "  Models are not downloaded during setup. Download or import them in the app."
