@@ -1,65 +1,47 @@
-#  Uncensored AI Studio
+# Lumen Studio AI
 
-<p align="center">
-  <strong>A premium, zero-configuration local AI studio and offline GUI for Stable Diffusion (Image Generation), LLMs (Chat), Whisper (Speech-to-Text), and Kokoro (Text-to-Speech). Powered by hardware-accelerated GPU and NPU execution on Windows, Linux, and macOS.</strong>
-</p>
+**Light up your local tools.**
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Offline-100%25-green?style=for-the-badge&logo=offline" alt="100% Offline" />
-  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue?style=for-the-badge" alt="Platforms" />
-  <img src="https://img.shields.io/badge/License-MIT-orange?style=for-the-badge" alt="License" />
-</p>
+Lumen Studio AI is an experimental local AI studio for running and working with open-source AI tools on your own device.
 
-<p align="center">
-  🎥 <strong>Watch the Setup & Demo Video:</strong> <a href="https://youtu.be/qvamkqmLPn8">https://youtu.be/qvamkqmLPn8</a>
-</p>
+This project is based on [Uncensored-Local-Studio](https://github.com/techjarves/Uncensored-Local-Studio) by Tech Jarves. The goal of this fork is to move the project away from “uncensored AI” branding and toward a calm, practical workspace for local AI tools.
 
-<p align="center">
-  <a href="https://youtu.be/qvamkqmLPn8">
-    <img src="https://img.youtube.com/vi/qvamkqmLPn8/maxresdefault.jpg" alt="Uncensored AI Studio Video Tutorial" width="800" style="border-radius: 8px;" />
-  </a>
-</p>
+## Project status
 
----
+Lumen Studio AI is currently an experimental community fork.
 
+The first stage of this project focuses on branding, documentation, project direction, and clear expectations before making major technical changes.
 
-## 📖 Table of Contents
-* [What is Uncensored AI Studio?](#what-is-uncensored-ai-studio)
-* [Key Features](#key-features)
-* [Workspace & Engine Architecture](#workspace-architecture)
-* [Supported Models](#supported-models)
-* [Folder Architecture](#folder-architecture)
-* [Getting Started](#getting-started)
-  * [Windows Setup](#windows-setup)
-  * [Linux Setup](#linux-setup)
-  * [macOS Setup](#macos-setup)
-* [Hardware Compatibility & Acceleration](#hardware-compatibility-acceleration)
-* [Troubleshooting & FAQ](#troubleshooting-faq)
-* [Building From Source](#building-from-source)
-* [Licensing](#licensing)
+## Support status
 
----
+Lumen Studio AI is provided as-is.
 
-## <a id="what-is-uncensored-ai-studio"></a>📖 What is Uncensored AI Studio?
+I am not the original developer, and I cannot guarantee fixes for device-specific crashes, model compatibility issues, build errors, operating-system issues, or local setup problems.
 
-**Uncensored AI Studio** is a completely offline, zero-setup, self-contained AI studio for Windows, Linux, and macOS. Unlike cloud-based AI systems, it runs entirely on your own hardware with no censorship, tracking, subscriptions, or login requirements.
+Bug reports and contributions are welcome, but support is best-effort only.
 
-It unifies four major local AI capabilities into one high-performance desktop interface:
-1. **🎨 Image Generation (Stable Diffusion):** Generate and edit high-quality images offline using `.safetensors`, `.gguf`, or `.ckpt` model weights.
-2. **💬 Text Chat (LLMs):** Converse privately with open-source language models (GGUF format) powered by official, high-performance `llama.cpp` backends.
-3. **🎙️ Speech-to-Text (Whisper):** Transcribe voice recordings and speech to text in real-time with an integrated `whisper.cpp` engine.
-4. **🗣️ Text-to-Speech (Kokoro TTS):** Convert text outputs into highly natural, lifelike vocal audio offline using the `Kokoro-82M` ONNX model.
+## What Lumen Studio AI does
 
----
+Lumen Studio AI brings several local AI capabilities into one desktop workspace:
 
-## <a id="key-features"></a>🌟 Key Features
+1. **Image generation:** Generate and edit images locally using supported Stable Diffusion model files.
+2. **Text chat:** Run local language models for chat and writing workflows.
+3. **Speech-to-text:** Transcribe speech locally using Whisper-based tools.
+4. **Text-to-speech:** Convert text into local voice output using Kokoro TTS.
 
-*   **100% Offline & Private:** Run inferences locally. No internet, telemetry, cloud logging, or API keys required.
-*   **Zero-Install Portability:** Entire runtime (Node.js, models, GPU backends) is self-contained. Zero global system environment changes.
-*   **Auto-Configured Acceleration:** Auto-detects hardware specs to load CUDA (Nvidia), ROCm (AMD), Vulkan (Intel/AMD/NVIDIA), Metal (macOS), or OpenVINO (Intel NPU) backends.
-*   **Integrated Model Manager:** Paste Hugging Face URLs to download weights directly, or drag-and-drop local weights to import them.
-*   **Live Performance Monitor:** Track CPU, RAM, GPU, and VRAM utilization in real-time directly inside the web UI.
-*   **Local Output Gallery:** Saves generated images side-by-side with prompt parameters and metadata JSON files.
+## Key direction
+
+- Local-first AI workspace
+- Open-source model and tool support
+- Calm, practical interface
+- No hosted API required for core use
+- Not positioned as an “uncensored” or bypass-focused tool
+
+## Attribution
+
+This project is forked from [Uncensored-Local-Studio](https://github.com/techjarves/Uncensored-Local-Studio).
+
+Original project copyright and license notices are preserved under the MIT License.
 
 ---
 
