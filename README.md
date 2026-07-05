@@ -1,20 +1,20 @@
-# Lumen Studio AI
+# Lumen AI Studio
 
 **Light up your local tools.**
 
-Lumen Studio AI is an experimental local AI studio for running and working with open-source AI tools on your own device.
+Lumen AI Studio is an experimental local AI studio for running and working with open-source AI tools on your own device.
 
 This project is based on [Uncensored-Local-Studio](https://github.com/techjarves/Uncensored-Local-Studio) by Tech Jarves. The goal of this fork is to move the project away from “uncensored AI” branding and toward a calm, practical workspace for local AI tools.
 
 ## Project status
 
-Lumen Studio AI is currently an experimental community fork.
+Lumen AI Studio is currently an experimental community fork.
 
 The first stage of this project focuses on branding, documentation, project direction, and clear expectations before making major technical changes.
 
 ## Support status
 
-Lumen Studio AI is provided as-is.
+Lumen AI Studio is provided as-is.
 
 I am not the original developer, and I cannot guarantee fixes for device-specific crashes, model compatibility issues, build errors, operating-system issues, or local setup problems.
 
@@ -22,7 +22,7 @@ Bug reports and contributions are welcome, but support is best-effort only.
 
 ## What Lumen Studio AI does
 
-Lumen Studio AI brings several local AI capabilities into one desktop workspace:
+Lumen AI Studio brings several local AI capabilities into one desktop workspace:
 
 1. **Image generation:** Generate and edit images locally using supported Stable Diffusion model files.
 2. **Text chat:** Run local language models for chat and writing workflows.
@@ -99,7 +99,7 @@ Known-good image models available from the Model Manager:
 ## <a id="folder-architecture"></a>📁 Folder Architecture
 
 ```
-lumen-studio-ai/
+lumen-ai-studio/
 ├── windows.bat                # Windows Launcher (Double-click entrypoint)
 ├── linux.sh                   # Linux Launcher (Terminal entrypoint)
 ├── mac.sh                     # macOS Launcher (Terminal entrypoint)
@@ -280,7 +280,7 @@ cmake .. -DSD_METAL=ON -DSD_BUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build . --config Release -j$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)
 
 # 4. Copy the binaries into this project
-cp bin/sd* /path/to/lumen-studio-ai/app/backend/linux/<backend>/
+cp bin/sd* /path/to/lumen-ai-studio/app/backend/linux/<backend>/
 ```
 
 After copying, rename the server binary to match what `scripts/server/serve.cjs` expects:
