@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lumen Studio AI
+title Lumen AI Studio
 cd /d "%~dp0"
 
 set APP=%~dp0app
