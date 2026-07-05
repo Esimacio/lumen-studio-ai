@@ -1619,7 +1619,7 @@ function getPathInfo(label, targetPath, type = "file") {
 function isDirWritable(dirPath) {
   try {
     fs.mkdirSync(dirPath, { recursive: true });
-    const testFile = path.join(dirPath, `.uncensored-ai-studio-write-test-${Date.now()}.tmp`);
+    const testFile = path.join(dirPath, `.lumen-ai-studio-write-test-${Date.now()}.tmp`);
     fs.writeFileSync(testFile, "ok", "utf8");
     fs.unlinkSync(testFile);
     return true;
@@ -3468,7 +3468,7 @@ function requestHttpsJson(url, timeoutMs = 30000) {
     const req = https.get(url, {
       headers: {
         "Accept": "application/json",
-        "User-Agent": "Uncensored-AI-Studio/1.0",
+        "User-Agent": "lumen-AI-Studio/1.0",
       },
       timeout: timeoutMs,
     }, (res) => {
@@ -3587,7 +3587,7 @@ function classifyHuggingFaceModel(model, filename) {
   return {
     potato: parameters !== null && parameters <= 3,
     vision: /(?:vision|llava|multimodal|(?:^|[-_/ ])vl(?:[-_/ ]|$)|moondream)/i.test(searchable),
-    uncensored: /uncensored|abliterated|heretic/i.test(searchable),
+    lumen: /lumen|abliterated|heretic/i.test(searchable),
     parameters,
   };
 }
@@ -3673,15 +3673,15 @@ async function searchHuggingFaceModels(query, filters) {
     searchTerms = [
       query.trim(),
       filters.includes("vision") ? "vision" : "",
-      filters.includes("uncensored") ? "uncensored" : "",
+      filters.includes("lumen") ? "lumen" : "",
     ].filter(Boolean).join(" ");
   } else {
-    if (filters.includes("vision") && filters.includes("uncensored")) {
-      searchTerms = "vision uncensored gguf";
+    if (filters.includes("vision") && filters.includes("lumen")) {
+      searchTerms = "vision lumen gguf";
     } else if (filters.includes("vision")) {
       searchTerms = "vision gguf";
-    } else if (filters.includes("uncensored")) {
-      searchTerms = "uncensored gguf";
+    } else if (filters.includes("lumen")) {
+      searchTerms = "lumen gguf";
     } else {
       searchTerms = defaultSearch;
     }
@@ -3708,9 +3708,9 @@ async function searchHuggingFaceModels(query, filters) {
     const projectorFilename = selectMmprojFile(model.siblings, filename);
     const traits = classifyHuggingFaceModel(model, filename);
     if (filters.includes("vision") && !traits.vision) continue;
-    if (filters.includes("uncensored") && !traits.uncensored) continue;
+    if (filters.includes("lumen") && !traits.lumen) continue;
 
-    const isLikelyChatModel = /instruct|chat|assistant|coder|uncensored|abliterated|vision|llava|\bvl\b/i.test(`${model.id} ${filename}`);
+    const isLikelyChatModel = /instruct|chat|assistant|coder|lumen|abliterated|vision|llava|\bvl\b/i.test(`${model.id} ${filename}`);
     if (!query.trim() && !isLikelyChatModel) continue;
     const normalizedQuery = query.trim().toLowerCase().replace(/[-_/]+/g, " ").replace(/\s+/g, " ");
     const normalizedModelName = `${model.id} ${filename}`.toLowerCase().replace(/[-_/]+/g, " ").replace(/\s+/g, " ");
@@ -4926,7 +4926,7 @@ function startImageBackendDownload(backendId, redirectCount = 0, redirectUrl = "
   const client = url.startsWith("https") ? https : http;
   const request = client.get(url, {
     headers: {
-      "User-Agent": "Uncensored-AI-Studio/1.0 (+https://github.com/techjarves/Uncensored-AI-Studio)",
+      "User-Agent": "lumen-AI-Studio/1.0 (+https://github.com/techjarves/lumen-AI-Studio)",
       "Accept": "application/zip, application/octet-stream, */*",
     },
   }, (response) => {
@@ -5127,7 +5127,7 @@ function startModelDownload(url, overrideFilename = null, targetDir = MODELS, ki
   const client = url.startsWith("https") ? https : http;
   const request = client.get(url, {
     headers: {
-      "User-Agent": "Uncensored-AI-Studio/1.0 (+https://github.com/techjarves/Uncensored-AI-Studio)",
+      "User-Agent": "lumen-AI-Studio/1.0 (+https://github.com/techjarves/lumen-AI-Studio)",
       "Accept": "application/octet-stream, application/x-safetensors, */*",
       "Referer": "https://huggingface.co/",
     },
@@ -5936,7 +5936,7 @@ const server = http.createServer(async (req, res) => {
     const filters = String(parsed.searchParams.get("filters") || "")
       .split(",")
       .map((value) => value.trim().toLowerCase())
-      .filter((value) => ["vision", "uncensored"].includes(value));
+      .filter((value) => ["vision", "lumen"].includes(value));
     const page = Math.max(1, Math.min(20, Number(parsed.searchParams.get("page")) || 1));
     const pageSize = 9;
     try {
@@ -7151,7 +7151,7 @@ server.timeout = 0; // Disable socket timeout for large model uploads/downloads
 server.listen(PORT_FRONTEND, "0.0.0.0", () => {
   console.log("");
   console.log("  ============================================================");
-  console.log("   UNCENSORED AI STUDIO      |  Running");
+  console.log("   lumen AI STUDIO      |  Running");
   console.log("   Server Build: " + SERVER_BUILD);
   console.log("   Frontend : http://localhost:" + PORT_FRONTEND);
   console.log("   Image API: http://127.0.0.1:" + PORT_BACKEND);
