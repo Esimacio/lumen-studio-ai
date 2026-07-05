@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Uncensored AI Studio - Linux Launcher
+# Lumen AI Studio - Linux Launcher
 # Double-click or run: ./linux.sh
 # Use --max-perf to enable ROCm backend downloads on Linux first setup.
 #
@@ -188,7 +188,7 @@ fi
 if [[ -n "$SETUP_REASON" ]]; then
   echo ""
   echo "  ============================================================"
-  echo "   UNCENSORED AI STUDIO      |  $PLATFORM_LABEL $SETUP_MODE"
+  echo "   LUMEN AI STUDIO      |  $PLATFORM_LABEL $SETUP_MODE"
   echo "  ============================================================"
   echo ""
   if [[ "$SETUP_MODE" == "First-Time Setup" ]]; then
@@ -222,7 +222,7 @@ fi
 clear 2>/dev/null || true
 echo ""
 echo "  ============================================================"
-echo "   UNCENSORED AI STUDIO      |  Launching..."
+echo "   LUMEN AI STUDIO      |  Launching..."
 echo "  ============================================================"
 echo ""
 
@@ -241,7 +241,7 @@ elif command -v fuser >/dev/null 2>&1; then
 fi
 
 # Start the server
-echo "  Starting Uncensored AI Studio..."
+echo "  Starting Lumen AI Studio..."
 export PATH="$NODE_DIR/bin:$PATH"
 export FRONTEND_PORT="$FRONTEND_PORT"
 
