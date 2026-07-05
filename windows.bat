@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Uncensored AI Studio
+title Lumen Studio AI
 cd /d "%~dp0"
 
 set APP=%~dp0app
@@ -57,7 +57,7 @@ goto :run_setup
 :run_setup
 echo.
 echo  ============================================================
-echo   UNCENSORED AI STUDIO      ^|  %SETUP_MODE%
+echo   LUMEN AI STUDIO      ^|  %SETUP_MODE%
 echo  ============================================================
 echo.
 if "%SETUP_MODE%"=="First-Time Setup" (
@@ -91,7 +91,7 @@ goto :launch
 :launch
 echo.
 echo  ============================================================
-echo   UNCENSORED AI STUDIO      ^|  Launching...
+echo   LUMEN AI STUDIO      ^|  Launching...
 echo  ============================================================
 echo.
 
