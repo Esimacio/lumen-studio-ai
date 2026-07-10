@@ -12,17 +12,7 @@ import { cleanupCandidates, formatBytes, getCleanupCandidates, getDiagnostics, g
 import "./App.css";
 
 function App() {
-  const [showThemeSelection, setShowThemeSelection] = useState(() => {
-  return localStorage.getItem("lumen-theme-selected") !== "true";
-});
-
-const handleThemeSelectionComplete = useCallback((selectedTheme) => {
-  if (selectedTheme) {
-    setTheme(selectedTheme);
-  }
-
-  setShowThemeSelection(false);
-}, []);
+  
   const dialogResolverRef = useRef(null);
   const [dialog, setDialog] = useState(null);
 
@@ -47,17 +37,29 @@ const handleThemeSelectionComplete = useCallback((selectedTheme) => {
     });
   }, []);
 
-  // Theme State
-  const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem("theme");
-    if (saved) return saved;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  });
+ // Theme State
+const [theme, setTheme] = useState(() => {
+  const saved = localStorage.getItem("theme");
+  if (saved) return saved;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+});
 
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+useEffect(() => {
+  document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem("theme", theme);
+}, [theme]);
+
+const [showThemeSelection, setShowThemeSelection] = useState(() => {
+  return localStorage.getItem("lumen-theme-selected") !== "true";
+});
+
+const handleThemeSelectionComplete = useCallback((selectedTheme) => {
+  if (selectedTheme) {
+    setTheme(selectedTheme);
+  }
+
+  setShowThemeSelection(false);
+}, []);
 
   // Navigation
   const [activeTab, setActiveTab] = useState("generator");
